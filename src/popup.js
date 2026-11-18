@@ -4,7 +4,7 @@ let status = null;
 
 const VERDICT_TEXT = {
   study: 'Counts as study', distraction: 'Counts as distraction', neutral: 'Not judged (browser page)',
-  unknown: 'Not on any list: not judged',
+  unknown: 'Not on any list: counts as distraction if you stay long (Settings)',
 };
 
 function mmss(ms) {
@@ -37,6 +37,9 @@ function render() {
     $('strikes').textContent = session.strikes;
     const a = session.answers || {};
     $('answers').textContent = `${a.pass || 0}/${(a.fail || 0) + (a.partial || 0)}`;
+    $('discLine').textContent = `Discipline: ${settings.discipline} · punishments ${session.punishments || 0} · away ${Math.round((session.awayMs || 0) / 60000)} min`;
+    $('returnNow').disabled = !session.studyTab;
+    $('returnNow').title = session.studyTab ? session.studyTab.url : 'No study tab yet: open your material first';
   }
   $('pageBox').hidden = !host;
   $('host').textContent = host;
@@ -53,6 +56,9 @@ async function refresh() {
   render();
   tickClock();
   $('permNote').hidden = await chrome.permissions.contains({ origins: ['<all_urls>'] });
+  const { lastReaction: r } = await chrome.storage.local.get('lastReaction');
+  $('lastReaction').hidden = !r;
+  if (r) $('lastReaction').textContent = `Last reaction: ${r.trigger} at ${new Date(r.at).toLocaleTimeString()} · ${r.persona ? `${r.persona}, ` : ''}${r.voice}`;
 }
 
 $('start').addEventListener('click', async () => {
@@ -67,6 +73,7 @@ $('stop').addEventListener('click', async () => { $('stop').disabled = true; awa
 $('markStudy').addEventListener('click', async () => { await send({ type: 'mark', verdict: 'study' }); refresh(); });
 $('markDistraction').addEventListener('click', async () => { await send({ type: 'mark', verdict: 'distraction' }); refresh(); });
 $('silence').addEventListener('click', () => send({ type: 'silence' }));
+$('returnNow').addEventListener('click', async () => { await send({ type: 'returnNow' }); window.close(); });
 $('options').addEventListener('click', () => chrome.runtime.openOptionsPage());
 $('grant').addEventListener('click', async () => {
   const ok = await chrome.permissions.request({ origins: ['<all_urls>'] }).catch(() => false);

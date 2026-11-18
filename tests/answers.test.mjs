@@ -35,6 +35,19 @@ test('diff: right, wrong, partial, and the first visit says nothing', () => {
   assert.equal(A.triggerFor(A.diff(wrong, snap({ a: q(0, 1, 2, 0, 1) }))), 'quizFail');
 });
 
+test('diff: a question in parts is judged by the part just submitted', () => {
+  const part = (score, max, subs) => ({ score, max, subs });
+  const qp = (parts, c = 0, i = 0) => ({ score: null, max: 1, subs: parts.reduce((a, x) => a + x.subs, 0), c, i, p: 0, parts });
+  const start = snap({ q12: qp([part(null, 0.2, 0), part(null, 0.2, 0), part(null, 0.2, 0)]) });
+  const aRight = snap({ q12: qp([part(0.2, 0.2, 1), part(null, 0.2, 0), part(null, 0.2, 0)], 1) });
+  assert.equal(A.triggerFor(A.diff(start, aRight)), 'quizPass'); // one right part of three is "right", not partial
+  const bWrong = snap({ q12: qp([part(0.2, 0.2, 1), part(0, 0.2, 1), part(null, 0.2, 0)], 1) });
+  assert.equal(A.triggerFor(A.diff(aRight, bWrong)), 'quizFail');
+  const onlyMark = snap({ q12: qp([part(0.2, 0.2, 1), part(0, 0.2, 1), part(null, 0.2, 0)], 2) });
+  assert.equal(A.triggerFor(A.diff(bWrong, onlyMark)), 'quizPass'); // scores not updated yet: the new mark decides
+  assert.equal(A.triggerFor(A.diff(onlyMark, onlyMark)), '');
+});
+
 test('diff: the whole assignment correct says allDone once', () => {
   const almost = snap({ a: q(1, 1, 1), b: q(0, 1, 1) });
   const done = snap({ a: q(1, 1, 1), b: q(1, 1, 2) });

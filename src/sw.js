@@ -2,8 +2,8 @@
 // All listeners are registered at the top level; all state is in chrome.storage.local (store.js), so it does not
 // matter when Chrome stops and restarts this worker.
 import {
-  classify, step, newSession, verdictOf, maySpeak, pickClip, sanitizePack, nextDueIn, hostOf, pageKey, pathKey,
-  matchesList, TRIGGERS, subjectWords,
+  driftStatus, classify, step, newSession, verdictOf, maySpeak, pickClip, sanitizePack, nextDueIn, hostOf, pageKey, pathKey,
+  matchesList, TRIGGERS, subjectWords, punishmentFor,
 } from './core.js';
 import {
   serial, getSettings, saveSettings, getSession, setSession, getVerdicts, liveVerdicts, putVerdict, swapSnapshot,
@@ -11,7 +11,7 @@ import {
 } from './store.js';
 import { playClip, speakText, stopAudio } from './audio.js';
 import { askAbout } from './gemini.js';
-import { showOverlay } from './overlay.js';
+import { showOverlay, removeOverlay } from './overlay.js';
 import './answers.js'; // a plain script shared with the content script: sets globalThis.CommissarAnswers
 
 const TICK = 'tick';
@@ -49,24 +49,41 @@ const TONE = { abandon: 'warn', back: 'good', focusBlock: 'good', endGood: 'good
  * Speaks one trigger: a clip from the chosen persona(s), the optional browser voice, and the banner on `tab`.
  * Returns {lastSpokenAt, lastFile} for the session, or null when nothing was said.
  */
-async function speak(trigger, { settings, tab, lastFile = '', meta = '' }) {
+async function speak(trigger, { settings, tab, lastFile = '', meta = '', fx = null, silent = false }) {
   const packs = await loadPacks();
   const clip = pickClip(packs, settings, trigger, Math.random, lastFile);
   const caption = clip?.caption || TRIGGERS[trigger]?.caption || '';
+  // what happened is kept for the popup ("last reaction"), so a silent extension can be diagnosed at a glance
+  if (silent) { // speech held back by the throttle: only the punishment's effects are shown
+    if (fx?.effects?.length) present(tab, settings, { name: 'Commissar', caption: TRIGGERS[trigger]?.caption || '', tone: 'warn', meta, fx });
+    return null;
+  }
+  const note = (voice) => chrome.storage.local.set({ lastReaction: { trigger, at: Date.now(), voice, persona: clip?.packName || '' } }).catch(() => {});
   if (clip) {
     playClip({ path: `${clip.packId}/${clip.file}`, rough: settings.rough[clip.packId] || 0, volume: settings.volume })
-      .catch(() => { if (settings.ttsFallback) speakText(caption, settings.volume); });
+      .then(() => note('played'), (e) => {
+        note(`voice failed: ${String(e?.message || e).slice(0, 120)}`);
+        if (settings.ttsFallback) speakText(caption, settings.volume);
+      });
   } else if (settings.ttsFallback || !packs.length) { // no voice packs installed at all: the browser voice speaks
     speakText(caption, settings.volume);
+    note('browser voice');
+  } else {
+    note('no recorded line for this event');
   }
-  if (settings.overlay && tab?.id != null && /^https?:/i.test(tab.url || '')) {
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: showOverlay,
-      args: [{ name: clip?.packName || 'Commissar', caption, tone: TONE[trigger] || 'warn', meta }],
-    }).catch(() => { /* no access to this site, or a page scripts cannot run on: voice only */ });
-  }
+  present(tab, settings, { name: clip?.packName || 'Commissar', caption, tone: TONE[trigger] || 'warn', meta, fx });
   return clip || settings.ttsFallback || !packs.length ? { lastSpokenAt: Date.now(), lastFile: clip?.file || '' } : null;
+}
+
+/** The banner, with the punishment's effects, on `tab` (when banners are on and the page allows scripts). */
+function present(tab, settings, { name, caption, tone, meta, fx }) {
+  const effects = fx?.effects || [];
+  if (!(settings.overlay || effects.length) || tab?.id == null || !/^https?:/i.test(tab.url || '')) return;
+  chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: showOverlay,
+    args: [{ name, caption, tone, meta, effects, countdownS: fx?.returnInS || 0, lockoutS: fx?.lockoutS || 0, penance: settings.penance }],
+  }).catch(() => { /* no access to this site, or a page scripts cannot run on: voice only */ });
 }
 
 const BADGE = { study: ['ON', '#2e7d32'], distraction: ['!', '#c0392b'], idle: ['zz', '#7f6a3a'], locked: ['', '#555'], away: ['ON', '#555'], neutral: ['ON', '#555'] };
@@ -103,9 +120,11 @@ async function evaluate() {
   const tab = await currentTab();
   let status;
   let verdict = '';
+  // in another app: the browser's active tab is not what you are looking at (no effects or returns on it)
+  const outside = idle !== 'locked' && idle !== 'idle' && !win?.focused;
   if (idle === 'locked') status = 'locked';
   else if (idle === 'idle') status = 'idle';
-  else if (!win?.focused) status = settings.punishOutsideBrowser ? 'distraction' : 'away';
+  else if (outside) status = settings.punishOutsideBrowser ? 'distraction' : 'away';
   else {
     const verdicts = liveVerdicts(await getVerdicts(), now);
     const sensed = tab?.url ? await pageSenseFor(tab.url) : '';
@@ -113,31 +132,59 @@ async function evaluate() {
     if (verdict === 'unknown' && sensed) verdict = sensed;
     status = verdict === 'unknown' ? 'neutral' : verdict;
   }
-  const res = step(session, status, now, settings, hostOf(tab?.url || ''));
+  // a page nothing could judge: remember since when you are on it (drift to distraction, optional Gemini check)
+  const pageNow = verdict === 'unknown' && tab?.url ? pathKey(tab.url) : '';
+  const tracked = pageNow && session.unknownKey === pageNow ? session : { ...session, unknownKey: pageNow, unknownSince: pageNow ? now : 0, geminiAsked: false };
+  if (pageNow) status = driftStatus(tracked, now, settings);
+  const res = step(tracked, status, now, settings, hostOf(tab?.url || ''));
   const next = res.session;
 
   // optional Gemini check for a page the local rules could not decide, once you have stayed on it a while
-  if (verdict === 'unknown' && settings.gemini.enabled && tab?.url) {
-    const key = pathKey(tab.url);
-    if (next.unknownKey !== key) { next.unknownKey = key; next.unknownSince = now; }
-    else if (now - next.unknownSince >= settings.gemini.afterSeconds * 1000) {
+  if (pageNow && settings.gemini.enabled && !next.geminiAsked) {
+    const key = pageNow;
+    if (now - next.unknownSince >= settings.gemini.afterSeconds * 1000) {
       const known = (await getVerdicts())[key];
       const expired = known && (known.v === 'unknown' ? known.until < now : now - known.at >= 7 * DAY);
       if (!known || expired) {
-        next.unknownSince = Number.MAX_SAFE_INTEGER; // once per visit
+        next.geminiAsked = true; // once per visit
         askAbout({ url: tab.url, title: tab.title, subject: session.subject, settings, tabId: tab.id })
           .then((v) => { if (v) schedule(); }, (e) => console.warn('gemini', e));
       }
     }
-  } else {
-    next.unknownKey = '';
   }
 
+  // remember the last tab you studied on: it is where a forced return takes you
+  if (status === 'study' && tab?.id != null) next.studyTab = { tabId: tab.id, url: tab.url };
+
+  // a forced return that has come due (cancelled by step() if you went back on your own)
+  if (next.pendingReturn && now >= next.pendingReturn.at) {
+    const pr = next.pendingReturn;
+    next.pendingReturn = null;
+    if (status === 'distraction' && tab?.id === pr.fromTabId) await returnToStudy(next, settings);
+  }
+
+  let spoke = false;
   for (const trigger of res.triggers) {
-    if (!maySpeak(trigger, next.lastSpokenAt, now)) continue;
-    const said = await speak(trigger, { settings, tab, lastFile: next.lastFile, meta: metaFor(trigger, next) });
-    if (said) Object.assign(next, said);
-    break; // one line per look; anything else waits for the next one
+    // our own switch back to the study tab is not something to praise
+    if ((trigger === 'back' || trigger === 'returned') && now - (next.forcedReturnAt || 0) < 15_000) continue;
+    const fx = punishmentFor(trigger, next, settings);
+    if (outside) { fx.effects = []; fx.returnInS = 0; fx.lockoutS = 0; } // the active tab is not what you are looking at
+    // one forced return (and one lockout) at a time: a repeated desertion must not push it back or renew the lockout
+    if (next.pendingReturn) {
+      fx.returnInS = 0;
+      if (fx.effects.includes('lockout')) { fx.effects = fx.effects.filter((e) => e !== 'lockout'); fx.lockoutS = 0; fx.say = 'deserted'; }
+    }
+    const punished = fx.effects.length || fx.returnInS || fx.notify || fx.focusWindow;
+    if (punished) next.punishments = (next.punishments || 0) + 1;
+    if (fx.returnInS && tab?.id != null && next.studyTab && next.studyTab.tabId !== tab.id) {
+      next.pendingReturn = { at: now + fx.returnInS * 1000, fromTabId: tab.id };
+    }
+    if (fx.effects.includes('lockout') && tab?.id != null) next.lockoutTabs = [...new Set([...(next.lockoutTabs || []), tab.id])].slice(-20);
+    if (fx.notify) notify(fx.say, settings);
+    if (fx.focusWindow) { next.focusedOnce = true; next.forcedReturnAt = now; bringBrowserForward(next); }
+    const say = !spoke && maySpeak(fx.say, next.lastSpokenAt, now);
+    const said = await speak(fx.say, { settings, tab, lastFile: next.lastFile, meta: metaFor(trigger, next), fx, silent: !say });
+    if (said) { Object.assign(next, said); spoke = true; } // one line per look; effects still show
   }
   await setSession(next);
   badge(next);
@@ -145,8 +192,50 @@ async function evaluate() {
   if (due > 0 && due < 25_000) setTimeout(schedule, due + 300); // sooner than the next 30 s alarm
 }
 
+/** Switches to the tab you last studied on, if it still exists and still counts as study. Never opens or closes tabs. */
+async function returnToStudy(session, settings) {
+  const st = session.studyTab;
+  if (!st) return false;
+  const tab = await chrome.tabs.get(st.tabId).catch(() => null);
+  if (!tab) { session.studyTab = null; return false; }
+  let verdict = classify(tab.url || '', tab.title || '', settings, session.subject, liveVerdicts(await getVerdicts()));
+  if (verdict === 'unknown') verdict = (await pageSenseFor(tab.url || '')) || verdict; // same rule as evaluate()
+  if (verdict !== 'study') return false;
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+  await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  session.forcedReturnAt = Date.now();
+  return true;
+}
+
+/** A system notification (optional permission; macOS Focus or notification settings may hide it). */
+function notify(trigger, settings) {
+  if (!chrome.notifications?.create) return;
+  chrome.notifications.create(`commissar-${Date.now()}`, {
+    type: 'basic', iconUrl: 'icons/icon128.png', title: 'Commissar Study Watch',
+    message: TRIGGERS[trigger]?.caption || 'Return to your materials.', priority: 1,
+  }).catch?.(() => {});
+}
+
+/** Harsh discipline only, once per time away: flash the browser, then try to bring it to the front (best effort). */
+async function bringBrowserForward(session) {
+  const st = session.studyTab && (await chrome.tabs.get(session.studyTab.tabId).catch(() => null));
+  const win = st ? { id: st.windowId } : await chrome.windows.getLastFocused().catch(() => null);
+  if (!win?.id) return;
+  await chrome.windows.update(win.id, { drawAttention: true }).catch(() => {});
+  await chrome.windows.update(win.id, { focused: true }).catch(() => {});
+}
+
+/** Takes every banner and lockout off the tabs that may have one (session end, discipline off). */
+async function clearOverlays(session, { keepCurrent = false } = {}) {
+  const ids = new Set([...(session?.lockoutTabs || [])]);
+  const tab = await currentTab();
+  if (tab?.id != null) { if (keepCurrent) ids.delete(tab.id); else ids.add(tab.id); }
+  for (const id of ids) chrome.scripting.executeScript({ target: { tabId: id }, func: removeOverlay }).catch(() => {});
+}
+
 function metaFor(trigger, s) {
-  if (trigger === 'distracted' || trigger === 'deserted') return `${s.lastHost || 'this page'} · strike ${s.strikes}`;
+  if (trigger === 'distracted' || trigger === 'deserted' || trigger === 'lockout') return `${s.lastHost || 'this page'} · strike ${s.strikes}`;
+  if (trigger === 'away') return `${Math.round((s.awayMs || 0) / 60000)} min away from the browser this session`;
   if (trigger === 'focusBlock') return `${Math.round(s.focusMs / 60000)} focused minutes this session`;
   return '';
 }
@@ -173,6 +262,8 @@ async function stopSession() {
   const settings = await getSettings();
   const { session: done } = step(session, 'locked', Date.now(), settings); // count up to now
   done.active = false;
+  done.pendingReturn = null;
+  await clearOverlays(done, { keepCurrent: true }); // the end banner replaces whatever is on the current tab
   const result = verdictOf(done);
   await speak(result, {
     settings, tab: await currentTab(),
@@ -182,7 +273,8 @@ async function stopSession() {
   await chrome.alarms.clear(TICK);
   await pushHistory({
     startedAt: done.startedAt, endedAt: Date.now(), subject: done.subject, focusMs: done.focusMs,
-    distractMs: done.distractMs, strikes: done.strikes, answers: done.answers, result,
+    distractMs: done.distractMs, strikes: done.strikes, answers: done.answers, punishments: done.punishments || 0,
+    awayMs: done.awayMs || 0, result,
   });
   badge(null);
   return done;
@@ -283,7 +375,7 @@ async function doSync() {
 
 async function init() {
   // content scripts may not read storage (the Gemini key, history): they ask the worker for what they need
-  await chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => {});
+  try { await chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }); } catch { /* older browser: not fatal */ }
   const settings = await getSettings();
   chrome.idle.setDetectionInterval(Math.max(15, Math.round(settings.idleMinutes * 60)));
   const session = await getSession();
@@ -293,7 +385,19 @@ async function init() {
   badge(session);
 }
 
-chrome.runtime.onInstalled.addListener(() => { init(); syncContentScripts(); });
+// after an install, update or reload, pages that were already open still have the old, disconnected page script:
+// put a fresh one into the open WebAssign tabs (and every tab when all-sites access is on)
+async function reattach() {
+  const s = await getSettings();
+  const all = (await chrome.permissions.contains({ origins: [ALL_URLS] }).catch(() => false))
+    && (s.autoDetect || s.readPages || s.quizRules.length > 0); // the same condition as the all-sites registration
+  const tabs = await chrome.tabs.query(all ? { url: ['http://*/*', 'https://*/*'] } : { url: ['*://*.webassign.net/*'] }).catch(() => []);
+  for (const t of tabs.slice(0, 100)) {
+    chrome.scripting.executeScript({ target: { tabId: t.id }, files: ['src/answers.js', 'src/watch.js'] }).catch(() => {});
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => { init(); syncContentScripts(); reattach(); });
 chrome.runtime.onStartup.addListener(() => { init(); syncContentScripts(); });
 chrome.permissions.onAdded.addListener(() => syncContentScripts());
 chrome.permissions.onRemoved.addListener(() => syncContentScripts());
@@ -308,11 +412,34 @@ chrome.windows.onFocusChanged.addListener(() => {
   focusTimer = setTimeout(schedule, 1500);
 });
 chrome.idle.onStateChanged.addListener(() => schedule());
+chrome.tabs.onRemoved?.addListener((tabId) => serial(async () => {
+  const s = await getSession();
+  if (s?.studyTab?.tabId === tabId) await setSession({ ...s, studyTab: null });
+}).catch(() => {}));
+chrome.tabs.onReplaced?.addListener((added, removed) => serial(async () => {
+  const s = await getSession();
+  if (s?.studyTab?.tabId === removed) await setSession({ ...s, studyTab: { ...s.studyTab, tabId: added } });
+}).catch(() => {}));
+const onNotificationClick = () => serial(async () => {
+  const s = await getSession();
+  if (s?.active && (await returnToStudy(s, await getSettings()))) await setSession(s);
+}).catch(() => {});
+let clickHooked = false;
+function hookNotificationClicks() {
+  if (clickHooked || !chrome.notifications?.onClicked?.addListener) return;
+  chrome.notifications.onClicked.addListener(onNotificationClick);
+  clickHooked = true;
+}
+hookNotificationClicks();
+chrome.permissions.onAdded.addListener(hookNotificationClicks); // the optional permission granted while running
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id || !msg || msg.target === 'offscreen') return undefined;
   // extension pages (popup, options: the options page has a tab too) vs content scripts on web pages, by origin
-  const trusted = String(sender.url || '').startsWith(chrome.runtime.getURL(''));
+  // content scripts always come with a tab whose page is a web page; extension pages (popup, options) do not,
+  // or (options opened as a tab) their own URL is the extension's
+  const extUrl = chrome.runtime.getURL('');
+  const trusted = sender.origin === new URL(extUrl).origin || String(sender.url || '').startsWith(extUrl);
   if (!trusted) {
     if (msg.type === 'answers') serial(() => onAnswers(msg, sender.tab)).catch(() => {});
     else if (msg.type === 'pageSense') serial(() => onPageSense(msg, sender.tab)).catch(() => {});
@@ -368,7 +495,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })());
       return true;
     case 'settingsChanged':
-      reply((async () => { packsPromise = null; await init(); await syncContentScripts(); schedule(); return {}; })());
+      reply((async () => {
+        packsPromise = null;
+        await init();
+        await syncContentScripts();
+        if ((await getSettings()).discipline === 'off') await clearOverlays(await getSession());
+        schedule();
+        return {};
+      })());
+      return true;
+    case 'returnNow':
+      reply(serial(async () => {
+        const s = await getSession();
+        if (!s?.active) return { returned: false };
+        const ok = await returnToStudy(s, await getSettings());
+        await setSession(s);
+        return { returned: ok };
+      }));
       return true;
     case 'setPersona': reply(serial(() => saveSettings({ persona: String(msg.persona || '') })).then(() => ({}))); return true;
     case 'silence': reply(stopAudio().then(() => ({}))); return true;

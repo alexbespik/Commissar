@@ -235,6 +235,99 @@ Checked on that page: all 13 questions read exactly as in your screenshot. A sim
   - So reloads and re-renders never cheer or scold.
 - **Rate limit:** at most one answer reaction every 4 seconds per tab.
 
+## 16. Screen effects, punishments, returning to the study tab, lost attention
+
+> also add ability to the extension to do the additional effects on the screen and control browser to return person to the needed tab
+> Also should show punishment from the commisar and see if browser lost the attention (also tell me first how long do you keep the cash like when conversation unloads and cost more )
+
+**Answered first:** the prompt cache.
+- **Lifetime:** this session caches the conversation for 1 hour. Each reply restarts the timer and reads it back at
+  about 0.05× the normal input price.
+- **After more than an hour away:** the next message writes the whole conversation to cache again at 2× the normal
+  input price. That one turn's input costs about 40× a cache hit, and it gets more expensive as the conversation
+  grows.
+- **Agents start with no cache.** The review agents (researcher, architect, reviewer, overseer) each re-read the
+  files from scratch, which makes them the most expensive part of each feature.
+
+**Built:** **Discipline levels**, configurable in Settings: off, lenient, standard (the default) and harsh.
+
+| Moment | What happens |
+|---|---|
+| Distracted | A red flash with the warning |
+| Deserted (still on the page after 60 s) | The page greys out and shakes; a countdown, "Returning you to your post in 10 s", then switches you back to the tab you were last studying on |
+| Repeated desertion (strike 3, or the 2nd desertion on harsh) | The **Commissar's judgment** lockout: the page is covered until you type the penance line |
+| Browser lost attention (another app in front for 2 min) | Voice line, plus a system notification once allowed; on harsh it also tries to bring the browser forward |
+| Back in the browser | The "returned" line |
+
+The lockout can never trap you:
+- It lifts by itself (30 s by default, never more than 60 s).
+- Esc lifts it after 10 seconds, wherever focus is.
+- Ending the session or setting discipline to Off removes it at once.
+- It is never shown on a study tab, never while you are in another app, and never renewed while a return is
+  already pending.
+
+What the browser control will and won't do:
+- It never closes, opens or navigates tabs. It only switches to your existing study tab, and only if that tab still
+  counts as study.
+- Going back on your own cancels the forced return.
+- **Back to study tab** in the popup does the same switch on demand.
+
+The popup now also shows the discipline level, punishments so far and minutes away.
+
+## 17. "It doesn't react"
+
+> and now it doesent do anything at distruction
+
+> there was one right answer and commisar didnt react
+
+**Fixed:**
+- **Voice lines silently dropped:** a security check added earlier made the audio player reject messages that
+  carried no sender address. Chrome doesn't always fill that address in for messages from the extension's own
+  background script, so voice lines could be dropped silently. The player now accepts them.
+- **Unknown sites never reacted to:** they counted as "not judged" forever. They now count as a distraction after
+  5 minutes on the same page (configurable).
+- **Diagnostics:** the popup shows a **Last reaction** line: what triggered, and whether the voice played or why it
+  failed.
+- **Answers judged per part:** WebAssign questions come in parts. The reader judged the whole question, so one
+  right part out of five would have played a *wrong-answer* line. It now judges the part you just submitted: right
+  means pass, wrong means fail. If WebAssign only adds the check mark, the mark decides. Checked on your saved
+  graded page.
+- **Page script after a reload:** reloading the extension leaves already open tabs with a dead page script. The
+  extension now puts a fresh one into open WebAssign tabs (or every tab, with all-sites access).
+- **Regression test:** an end-to-end test runs the background script against a fake browser: start a session,
+  open Reddit, check that the voice line and banner go out, then check the countdown and the return to the study
+  tab.
+
+## 18. New voice lines
+
+> also create the new voice lines with the eleven labs those feel dated
+
+> also I have no idea what that slauching replic in the start means do something rougher and cooler
+
+**Built:**
+- **New lines:** [tools/lines/commissar.json](tools/lines/commissar.json) is a fresh set of 67 short, harder lines
+  (about 2,800 characters), with lines for every moment, including lockout, away and returned.
+- **Start lines rewritten:** the old opener ("Slouching is now a matter of record") keeps playing until you record the new set (below). The new ones include
+  "On your feet, student. The war for your grade starts now." and "No retreat from this desk. Begin."
+- **`--replace`:** after a complete recording run, the pack plays only the new set. The old list and captions are
+  backed up first, and a partial run never wipes the old lines.
+- **Not yet recorded:** the permission system blocked reading your ElevenLabs key from SciEdu-Studio, so the
+  recording itself is one command for you to run:
+
+```bash
+ELEVENLABS_API_KEY=your_key node tools/gen-voice.mjs commissar --replace
+```
+
+## 19. A detailed README with screenshots
+
+> also make detailed readme with screenshots if possible
+
+**Built:** [README.md](README.md) now covers install, a first session, every trigger, discipline levels,
+what counts as studying, answers, voices, ElevenLabs, Gemini, a settings table, troubleshooting, privacy and
+development. Six screenshots in `docs/screenshots/` were rendered from the real extension pages with sample data:
+the popup, the distraction banner, the desertion countdown, the lockout, a right answer and Settings. A neutral
+mock page stands in for the distracting site; no personal page appears in them.
+
 ---
 
 ## Files
@@ -256,7 +349,7 @@ Checked on that page: all 13 questions read exactly as in your screenshot. A sim
 
 ## What was checked, and what was not
 
-- **Checked:** 20 unit tests pass; tester, reviewer and security review were run and their findings fixed. The static check passes: every file the manifest names exists, both packs
+- **Checked:** 27 tests pass, including an end-to-end run of the background script against a fake browser; tester, reviewer and security review were run and their findings fixed. The static check passes: every file the manifest names exists, both packs
   load, all 164 clips exist, every script parses. The answer reader and the teach detector were run on both of your
   saved WebAssign pages in a browser. The generator's dry run counted the characters without calling ElevenLabs.
 - **Not yet checked:**

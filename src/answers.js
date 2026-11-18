@@ -14,6 +14,8 @@
     question: '.waQBox[id^="question"]',
     score: '.columnRight .questionGrade', // the question's Total (the cells on the left are its parts)
     subs: '.submissions',                 // one per part: added up
+    partScore: '.columnElastic .questionGrade', // each part's own score ("0.2/0.2"), in order
+    partSubs: '.columnElastic .submissions',    // each part's own submission count ("2/5"), same order
     correct: '.waMark.mCorrect, .correctBord',
     incorrect: '.waMark.mIncorrect, .incorrectBord',
     partial: '.waMark.mPartial',
@@ -84,7 +86,18 @@
         // a question in parts has a submission count per part: their sum moves whenever any part is submitted
         const counts = all(box, rule.subs).map((e) => frac(e.textContent)[0]).filter((n) => n != null);
         const subs = counts.length ? counts.reduce((a, b) => a + b, 0) : null;
-        questions[id] = { score, max, subs, c: count(box, rule.correct), i: count(box, rule.incorrect), p: count(box, rule.partial) };
+        const q = { score, max, subs, c: count(box, rule.correct), i: count(box, rule.incorrect), p: count(box, rule.partial) };
+        if (rule.partScore) {
+          const ps = all(box, rule.partScore).slice(0, 30);
+          const pn = all(box, rule.partSubs);
+          if (ps.length) {
+            q.parts = ps.map((e, k) => {
+              const [s, m] = frac(e.textContent);
+              return { score: s, max: m, subs: pn[k] ? frac(pn[k].textContent)[0] : null };
+            });
+          }
+        }
+        questions[id] = q;
       });
     }
     if (!Object.keys(questions).length && rule.grid) {
@@ -112,6 +125,30 @@
     for (const [id, q] of Object.entries(cq)) {
       const p = pq[id];
       if (!p) continue;
+      // a question in parts: judge each part that was just submitted on its own score (one right part of five is
+      // "right", not "partial")
+      if (Array.isArray(q.parts) && Array.isArray(p.parts) && q.parts.length === p.parts.length) {
+        let judged = 0;
+        q.parts.forEach((part, k) => {
+          const was = p.parts[k];
+          const submitted = part.subs != null && was.subs != null && part.subs > was.subs;
+          const moved = part.score != null && part.score !== was.score;
+          if (!submitted && !moved) return;
+          judged += 1;
+          if (full(part)) out.results.push('pass');
+          else if (part.score != null && part.score > 0) out.results.push('partial');
+          else if (part.score != null) out.results.push('fail');
+          else judged -= 1; // submitted but not graded yet: the marks below decide
+        });
+        if (judged) continue;
+        // the scores did not move (yet): new marks on the question decide
+        const dc = q.c - p.c, di = q.i - p.i, dp = q.p - p.p;
+        if (di > 0 && dc > 0) out.results.push('partial');
+        else if (di > 0) out.results.push('fail');
+        else if (dp > 0) out.results.push('partial');
+        else if (dc > 0) out.results.push('pass');
+        continue;
+      }
       const moreSubs = q.subs != null && p.subs != null && q.subs > p.subs;
       const newMarks = (q.c - p.c) + (q.i - p.i) + (q.p - p.p) > 0;
       const scoreMoved = q.score != null && q.score !== p.score;

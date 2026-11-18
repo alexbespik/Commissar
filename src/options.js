@@ -9,9 +9,10 @@ let settings = normalizeSettings({});
 let packs = [];
 
 const LISTS = ['allowlist', 'blocklist', 'ambiguous', 'studyKeywords'];
-const NUMS = ['graceSeconds', 'desertSeconds', 'repeatSeconds', 'focusMinutes', 'idleMinutes'];
-const CHECKS = ['strictUnknown', 'punishOutsideBrowser', 'readPages', 'ttsFallback', 'overlay', 'answersAlways', 'autoDetect'];
-const PREVIEW = ['start', 'distracted', 'deserted', 'back', 'focusBlock', 'idle', 'quizPass', 'quizFail', 'allDone', 'endGood', 'endBad', 'abandon'];
+const NUMS = ['graceSeconds', 'desertSeconds', 'repeatSeconds', 'focusMinutes', 'idleMinutes', 'driftMinutes',
+  'countdownSeconds', 'awaySeconds', 'lockoutStrikes', 'lockoutSeconds'];
+const CHECKS = ['strictUnknown', 'punishOutsideBrowser', 'readPages', 'ttsFallback', 'overlay', 'answersAlways', 'autoDetect', 'effects'];
+const PREVIEW = ['start', 'distracted', 'deserted', 'lockout', 'back', 'away', 'returned', 'focusBlock', 'idle', 'quizPass', 'quizFail', 'allDone', 'endGood', 'endBad', 'abandon'];
 
 function el(tag, props = {}, ...kids) {
   const e = Object.assign(document.createElement(tag), props);
@@ -45,6 +46,9 @@ async function load() {
   for (const k of LISTS) $(k).value = settings[k].join('\n');
   for (const k of NUMS) $(k).value = settings[k];
   for (const k of CHECKS) $(k).checked = settings[k];
+  $('discipline').value = settings.discipline;
+  $('penance').value = settings.penance;
+  renderNotify();
   $('gEnabled').checked = settings.gemini.enabled;
   $('gKey').value = geminiKey;
   $('gModel').value = settings.gemini.model;
@@ -79,6 +83,12 @@ async function renderUsage() {
     geminiUsage?.lastError ? el('div', { className: 'err', textContent: `Last error: ${geminiUsage.lastError}` }) : '');
 }
 
+async function renderNotify() {
+  const ok = await chrome.permissions.contains({ permissions: ['notifications'] });
+  $('notifyState').textContent = ok ? 'Allowed.' : 'Not allowed: away warnings are voice only.';
+  $('grantNotify').hidden = ok;
+}
+
 async function renderPerm() {
   const all = await chrome.permissions.contains(ALL);
   $('perm').textContent = all
@@ -99,7 +109,7 @@ async function store() {
 $('save').addEventListener('click', async () => {
   // permission prompts must start straight from the click
   // ask for all sites only when you just ticked something that needs it (the defaults alone never prompt)
-  const newlyTicked = ['overlay', 'readPages', 'autoDetect'].some((k) => $(k).checked && !settings[k]);
+  const newlyTicked = ['overlay', 'readPages', 'autoDetect', 'effects'].some((k) => $(k).checked && !settings[k]);
   const wantAll = newlyTicked && !(await chrome.permissions.contains(ALL));
   const wantGemini = $('gEnabled').checked;
   const asks = [];
@@ -109,6 +119,8 @@ $('save').addEventListener('click', async () => {
 
   const next = { ...settings };
   next.persona = $('persona').value;
+  next.discipline = $('discipline').value;
+  next.penance = $('penance').value;
   next.squad = [...$('squad').querySelectorAll('input:checked')].map((i) => i.value);
   next.rough = Object.fromEntries(packs.map((p) => [p.id, Number($(`rough-${p.id}`).value)]));
   next.volume = Number($('volume').value);
@@ -126,6 +138,10 @@ $('save').addEventListener('click', async () => {
   $('saved').textContent = `Saved ${new Date().toLocaleTimeString()}`;
 });
 
+$('grantNotify').addEventListener('click', async () => {
+  await chrome.permissions.request({ permissions: ['notifications'] }).catch(() => false);
+  renderNotify();
+});
 $('persona').addEventListener('change', () => { $('squadBox').hidden = $('persona').value !== 'squad'; });
 $('grantAll').addEventListener('click', async () => { await chrome.permissions.request(ALL).catch(() => false); await send({ type: 'settingsChanged' }); renderPerm(); });
 $('revokeAll').addEventListener('click', async () => { await chrome.permissions.remove(ALL).catch(() => false); await send({ type: 'settingsChanged' }); renderPerm(); });

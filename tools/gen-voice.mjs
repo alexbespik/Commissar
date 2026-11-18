@@ -6,6 +6,7 @@
 //   node tools/gen-voice.mjs commissar --dry-run            # count characters, call nothing
 //   ELEVENLABS_API_KEY=... node tools/gen-voice.mjs commissar --only distracted --limit 1   # one test clip
 //   ELEVENLABS_API_KEY=... node tools/gen-voice.mjs commissar # record every missing clip (capped by --max-chars)
+//   ELEVENLABS_API_KEY=... node tools/gen-voice.mjs commissar --replace   # ...and play only these lines from now on
 //
 // Lines come from tools/lines/<pack>.json: {"name", "voice", "model", "events": {event: [text, ...]}}.
 // Writes <pack>/<event>-<hash>.mp3, merges them into <pack>/manifest.json (existing entries are kept), puts each
@@ -24,10 +25,11 @@ const FORMAT = 'mp3_44100_128';
 const SETTINGS = { stability: 0.6, similarity_boost: 0.8, style: 0.35, use_speaker_boost: true }; // stern and steady
 
 function args(argv) {
-  const a = { pack: '', dryRun: false, only: '', limit: 0, maxChars: 3000, voice: '' };
+  const a = { pack: '', dryRun: false, only: '', limit: 0, maxChars: 3000, voice: '', replace: false };
   for (let i = 0; i < argv.length; i += 1) {
     const k = argv[i];
     if (k === '--dry-run') a.dryRun = true;
+    else if (k === '--replace') a.replace = true;
     else if (k === '--only') a.only = argv[++i] || '';
     else if (k === '--limit') a.limit = Number(argv[++i]) || 0;
     else if (k === '--max-chars') a.maxChars = Number(argv[++i]) || 0;
@@ -35,7 +37,8 @@ function args(argv) {
     else if (!k.startsWith('-') && !a.pack) a.pack = k;
     else throw new Error(`unknown argument ${k}`);
   }
-  if (!/^[a-z0-9][a-z0-9_-]{0,40}$/.test(a.pack)) throw new Error('usage: node tools/gen-voice.mjs <pack> [--dry-run] [--only event] [--limit n] [--max-chars n] [--voice id]');
+  if (a.replace && (a.only || a.limit)) throw new Error('--replace needs the whole set: drop --only / --limit');
+  if (!/^[a-z0-9][a-z0-9_-]{0,40}$/.test(a.pack)) throw new Error('usage: node tools/gen-voice.mjs <pack> [--dry-run] [--only event] [--limit n] [--max-chars n] [--voice id] [--replace]');
   return a;
 }
 
@@ -113,9 +116,24 @@ async function main() {
   // manifest: keep what is there, add every wanted clip that now exists
   const manifestPath = join(out, 'manifest.json');
   const manifest = await readJson(manifestPath, { name: lines.name || a.pack, events: {} });
+  // --replace: the pack plays only the lines in the lines file (older clips stay on disk, unlisted). Only after a
+  // complete run: a partial one would leave events without any clip.
+  const complete = !failed && batch.length === todo.length;
+  const replacing = a.replace && complete;
+  if (a.replace && !complete) console.log('Not every line was recorded: kept the old lines too (run --replace again to finish).');
+  if (replacing) {
+    // the packs are not in git: keep the old list and captions next to them, once, so the old voice can be restored
+    const backup = join(out, 'manifest.before-replace.json');
+    if (!(await isFile(backup)) && (await isFile(manifestPath))) await writeFile(backup, await readFile(manifestPath));
+    const capsPath = join(ROOT, 'captions', `${a.pack}.json`);
+    const capsBackup = join(ROOT, 'captions', `${a.pack}.before-replace.json`);
+    if (!(await isFile(capsBackup)) && (await isFile(capsPath))) await writeFile(capsBackup, await readFile(capsPath));
+    manifest.events = {};
+    manifest.name = lines.name || manifest.name;
+  }
   manifest.events ||= {};
   const captionsPath = join(ROOT, 'captions', `${a.pack}.json`);
-  const captions = await readJson(captionsPath, {});
+  const captions = replacing ? {} : await readJson(captionsPath, {});
   let added = 0;
   for (const [event, clips] of Object.entries(want)) {
     for (const { name, text } of clips) {
@@ -125,7 +143,7 @@ async function main() {
       if (!list.includes(name)) { list.push(name); added += 1; }
     }
   }
-  if (added || made) {
+  if (added || made || replacing) {
     await writeJson(manifestPath, manifest);
     await mkdir(join(ROOT, 'captions'), { recursive: true });
     await writeJson(captionsPath, captions);

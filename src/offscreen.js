@@ -62,8 +62,9 @@ function play(url, rough, volume) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  // only the extension's own service worker (no tab, extension URL) may play or stop
-  if (msg?.target !== 'offscreen' || sender.id !== chrome.runtime.id || sender.tab || !String(sender.url || '').startsWith(BASE)) return undefined;
+  // only the extension itself, never a content script (those always carry sender.tab). sender.url is not
+  // checked: Chrome does not always fill it in for messages from the service worker.
+  if (msg?.target !== 'offscreen' || sender.id !== chrome.runtime.id || sender.tab) return undefined;
   if (msg.type === 'stop') { stop(); sendResponse({ ok: true }); return undefined; }
   if (msg.type === 'play' && typeof msg.url === 'string' && msg.url.startsWith(BASE)) {
     play(msg.url, msg.rough, msg.volume)

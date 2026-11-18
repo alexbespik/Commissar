@@ -52,6 +52,28 @@
   </section>
 
   <section>
+    <h2>Discipline</h2>
+    <p class="muted small">How the persona punishes drifting. Nothing ever closes or changes your tabs: the strongest measure is switching you back to the tab you were studying on.</p>
+    <div class="grid3">
+      <div><label for="discipline">Level</label>
+        <select id="discipline">
+          <option value="off">Off: voice only</option>
+          <option value="lenient">Lenient: red flash</option>
+          <option value="standard">Standard: shake, grey-out, return to your study tab</option>
+          <option value="harsh">Harsh: + lockout sooner, pulls the browser forward</option>
+        </select></div>
+      <div><label for="countdownSeconds">Return to study tab after (s)</label><input id="countdownSeconds" type="number" min="5" max="25"></div>
+      <div><label for="awaySeconds">Browser out of focus → warning after (s)</label><input id="awaySeconds" type="number" min="30" max="1800"></div>
+      <div><label for="lockoutStrikes">Lockout from strike</label><input id="lockoutStrikes" type="number" min="2" max="10"></div>
+      <div><label for="lockoutSeconds">Lockout lifts after (s, max 60)</label><input id="lockoutSeconds" type="number" min="10" max="60"></div>
+      <div><label for="penance">Penance line to type</label><input id="penance" type="text" maxlength="80"></div>
+    </div>
+    <label class="check"><input id="effects" type="checkbox"> On-screen effects (flash, shake, grey-out, lockout) on the distracting page (needs access to sites)</label>
+    <div class="row" style="margin-top:6px"><button id="grantNotify" class="shrink">Allow system notifications</button><span id="notifyState" class="small muted"></span></div>
+    <p class="muted small">Notifications reach you when another app is in front; macOS Focus or notification settings can hide them. Bringing the browser forward is best effort.</p>
+  </section>
+
+  <section>
     <h2>What counts as studying</h2>
     <div class="grid2">
       <div><label for="allowlist">Study sites (one per line; <code>host</code> or <code>host/path</code>)</label><textarea id="allowlist"></textarea></div>
@@ -68,6 +90,7 @@
       <div><label for="repeatSeconds">Repeat every (s)</label><input id="repeatSeconds" type="number" min="30" max="3600"></div>
       <div><label for="focusMinutes">Focus block (min)</label><input id="focusMinutes" type="number" min="5" max="180"></div>
       <div><label for="idleMinutes">No input → idle after (min)</label><input id="idleMinutes" type="number" min="1" max="60"></div>
+      <div><label for="driftMinutes">Unjudged page → distraction after (min, 0 = never)</label><input id="driftMinutes" type="number" min="0" max="120"></div>
     </div>
   </section>
 

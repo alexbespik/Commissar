@@ -84,6 +84,51 @@ test('time accounting, sleep gaps, focus blocks and idle', () => {
   assert.deepEqual(r.triggers, []);
 });
 
+test('an unjudged page drifts into distraction after driftMinutes', async () => {
+  const { driftStatus } = await import('../src/core.js');
+  const s = { unknownSince: 1000 };
+  assert.equal(driftStatus(s, 1000 + 4 * 60_000, S), 'neutral');
+  assert.equal(driftStatus(s, 1000 + 5 * 60_000, S), 'distraction');
+  assert.equal(driftStatus(s, 1000 + 99 * 60_000, { ...S, driftMinutes: 0 }), 'neutral');
+});
+
+test('punishments follow the discipline level', async () => {
+  const { punishmentFor } = await import('../src/core.js');
+  const sess = { strikes: 1, desertions: 1 };
+  assert.deepEqual(punishmentFor('distracted', sess, { discipline: 'standard' }).effects, ['flash']);
+  const d = punishmentFor('deserted', sess, { discipline: 'standard' });
+  assert.deepEqual(d.effects, ['shake', 'grayscale', 'countdown']);
+  assert.equal(d.returnInS, 10);
+  const lock = punishmentFor('deserted', { strikes: 3, desertions: 1 }, { discipline: 'standard' });
+  assert.equal(lock.say, 'lockout');
+  assert.ok(lock.effects.includes('lockout') && lock.lockoutS <= 60);
+  assert.equal(punishmentFor('deserted', { strikes: 1, desertions: 2 }, { discipline: 'harsh' }).say, 'lockout');
+  assert.equal(punishmentFor('deserted', sess, { discipline: 'lenient' }).returnInS, 0);
+  const off = punishmentFor('deserted', { strikes: 9, desertions: 9 }, { discipline: 'off' });
+  assert.deepEqual([off.effects, off.returnInS, off.notify], [[], 0, false]);
+  assert.equal(punishmentFor('away', {}, { discipline: 'standard' }).focusWindow, false);
+  assert.equal(punishmentFor('away', {}, { discipline: 'harsh' }).focusWindow, true);
+  assert.equal(punishmentFor('away', { focusedOnce: true }, { discipline: 'harsh' }).focusWindow, false);
+  assert.deepEqual(punishmentFor('deserted', sess, { discipline: 'standard', effects: false }).effects, []);
+});
+
+test('the browser losing attention: away after awaySeconds, returned when back, return cancelled', () => {
+  let s = { ...newSession(0), status: 'study' };
+  let r = step(s, 'away', 1000, S); s = r.session;
+  r = step(s, 'away', 60_000, S); s = r.session;
+  assert.deepEqual(r.triggers, []);
+  r = step(s, 'away', 121_500, S); s = r.session;
+  assert.deepEqual(r.triggers, ['away']);
+  r = step(s, 'away', 150_000, S); s = r.session;
+  assert.deepEqual(r.triggers, []);
+  assert.ok(s.awayMs > 100_000);
+  r = step(s, 'study', 151_000, S); s = r.session;
+  assert.deepEqual(r.triggers, ['returned']);
+  s = { ...s, status: 'distraction', pendingReturn: { at: 999_999, fromTabId: 2 } };
+  s = step(s, 'study', 160_000, S).session;
+  assert.equal(s.pendingReturn, null);
+});
+
 test('nextDueIn points at the grace and desert deadlines', () => {
   let s = newSession(0);
   s = step(s, 'distraction', 1000, S).session;

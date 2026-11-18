@@ -3,8 +3,11 @@
 // "looks like study" score. Never sends page text. It cannot read the extension's storage (the service worker
 // locks it to extension pages); what it needs comes from the service worker.
 (() => {
-  if (globalThis.__commissarWatch) return;
-  globalThis.__commissarWatch = true;
+  // after the extension reloads, the old copy on an open page is cut off; a newly injected copy takes over and the
+  // old one stops when it sees a newer token
+  const token = Math.random().toString(36).slice(2);
+  globalThis.__commissarWatch = token;
+  const mine = () => globalThis.__commissarWatch === token;
   const A = globalThis.CommissarAnswers;
   if (!A || !chrome?.runtime?.id) return;
 
@@ -52,7 +55,7 @@
       timer = setTimeout(report, Date.now() - firstPending > 3000 ? 0 : quietMs);
     };
     soon(1500);
-    new MutationObserver(() => soon(700))
-      .observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'aria-label', 'data-correct'] });
+    const obs = new MutationObserver(() => { if (!mine() || !chrome.runtime?.id) { obs.disconnect(); return; } soon(700); });
+    obs.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'aria-label', 'data-correct'] });
   });
 })();

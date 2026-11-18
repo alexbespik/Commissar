@@ -12,3 +12,5 @@ node_modules/
 # Officer clips are a personal recording. The repo ships the line texts and tools/gen-voice.mjs instead.
 /commissar/
 /helldiver/
+captions/*.before-replace.json
+*/manifest.before-replace.json

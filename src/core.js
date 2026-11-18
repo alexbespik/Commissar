@@ -27,7 +27,8 @@ export const DEFAULTS = Object.freeze({
     'notes', 'study', 'chapter', 'exercise', 'problem set', 'worksheet', 'documentation', 'docs', 'reference',
     'theorem', 'proof', 'equation', 'grammar', 'vocabulary', 'university', 'college', '.edu', '.pdf',
   ],
-  strictUnknown: false,        // pages on no list and without study words count as distraction
+  strictUnknown: false,        // pages on no list and without study words count as distraction at once
+  driftMinutes: 5,             // ...or after this long on the same such page (0 = never)
   punishOutsideBrowser: false, // the browser losing focus counts as distraction (you may be in a PDF reader or Anki)
   graceSeconds: 5,             // a distracting page must stay this long before it counts (tab cycling is free)
   desertSeconds: 60,           // still on a distracting page this long -> 'deserted'
@@ -40,6 +41,13 @@ export const DEFAULTS = Object.freeze({
   volume: 0.9,
   overlay: true,               // on-screen banner (needs the optional "all sites" permission)
   ttsFallback: false,          // speak the caption with the browser voice when no pack has a clip for a trigger
+  discipline: 'standard',      // off | lenient | standard | harsh: how the persona punishes (PUNISHMENTS below)
+  effects: true,               // on-screen effects (flash, shake, grey-out, lockout) on the distracting page
+  countdownSeconds: 10,        // deserted: "returning you to your post in N s", then back to the study tab
+  lockoutStrikes: 3,           // from this many strikes a desertion brings the lockout (harsh: from the 2nd desertion)
+  lockoutSeconds: 30,          // the lockout lifts by itself after this (hard maximum 60), or when the penance is typed
+  penance: 'I will not desert my studies.',
+  awaySeconds: 120,            // the browser out of focus this long during a session -> 'away'
   answersAlways: true,         // react to graded answers on homework pages even with no session running
   quizRules: [],               // site rules taught in options (src/answers.js has the shape and the built-in WebAssign one)
   autoDetect: false,           // with "all sites" allowed: look for right/wrong marks on every page with generic rules
@@ -83,6 +91,7 @@ export function normalizeSettings(raw) {
     allowlist: strList(r.allowlist, d.allowlist),
     studyKeywords: strList(r.studyKeywords, d.studyKeywords),
     strictUnknown: Boolean(r.strictUnknown ?? d.strictUnknown),
+    driftMinutes: clampNum(r.driftMinutes, 0, 120, d.driftMinutes),
     punishOutsideBrowser: Boolean(r.punishOutsideBrowser ?? d.punishOutsideBrowser),
     graceSeconds: clampNum(r.graceSeconds, 0, 60, d.graceSeconds),
     desertSeconds: clampNum(r.desertSeconds, 15, 3600, d.desertSeconds),
@@ -95,6 +104,13 @@ export function normalizeSettings(raw) {
     volume: clampNum(r.volume, 0, 1, d.volume),
     overlay: Boolean(r.overlay ?? d.overlay),
     ttsFallback: Boolean(r.ttsFallback ?? d.ttsFallback),
+    discipline: ['off', 'lenient', 'standard', 'harsh'].includes(r.discipline) ? r.discipline : d.discipline,
+    effects: Boolean(r.effects ?? d.effects),
+    countdownSeconds: clampNum(r.countdownSeconds, 5, 25, d.countdownSeconds),
+    lockoutStrikes: clampNum(r.lockoutStrikes, 2, 10, d.lockoutStrikes) | 0,
+    lockoutSeconds: clampNum(r.lockoutSeconds, 10, 60, d.lockoutSeconds),
+    penance: typeof r.penance === 'string' && r.penance.trim() ? r.penance.trim().slice(0, 80) : d.penance,
+    awaySeconds: clampNum(r.awaySeconds, 30, 1800, d.awaySeconds),
     answersAlways: Boolean(r.answersAlways ?? d.answersAlways),
     quizRules: cleanRules(r.quizRules),
     autoDetect: Boolean(r.autoDetect ?? d.autoDetect),
@@ -123,6 +139,11 @@ export const TRIGGERS = Object.freeze({
   back: { fallbacks: ['back', 'reward', 'quizPass'], throttle: true, caption: 'Back at your post. Good.' },
   focusBlock: { fallbacks: ['focusBlock', 'streak'], throttle: true, caption: 'A full block of focus. Take a short break.' },
   idle: { fallbacks: ['idle', 'streakRisk'], throttle: true, caption: 'Your hands have stopped. Has your mind?' },
+  // the browser lost your attention (another app in front) / you came back to it
+  away: { fallbacks: ['away', 'streakRisk', 'tab'], throttle: false, caption: 'Your browser lost your attention. Return to your materials.' },
+  returned: { fallbacks: ['returned', 'back', 'reward'], throttle: true, caption: 'You are back. Continue.' },
+  // repeated desertion: the page is locked until the penance is written
+  lockout: { fallbacks: ['lockout', 'desert', 'quizFail'], throttle: false, overlay: true, caption: 'Repeated desertion. Write your penance.' },
   // read off a homework / quiz page by src/answers.js (no AI): an answer was graded
   quizPass: { fallbacks: ['quizPass', 'reward'], throttle: false, caption: 'Correct. Continue.' },
   quizFail: { fallbacks: ['quizFail', 'quizLose'], throttle: false, caption: 'Wrong. Find out why, then try again.' },
@@ -227,6 +248,8 @@ export function newSession(now, subject = '') {
     strikes: 0, distractedSince: 0, warned: false, lastDesertAt: 0, idleFired: false,
     lastHost: '', lastSpokenAt: 0, lastFile: '', answers: { pass: 0, fail: 0, partial: 0 },
     unknownKey: '', unknownSince: 0,
+    awayMs: 0, awaySince: 0, awayWarned: false, focusedOnce: false, desertions: 0, punishments: 0,
+    pendingReturn: null, studyTab: null, forcedReturnAt: 0, lockoutTabs: [],
   };
 }
 
@@ -246,6 +269,7 @@ export function step(session, status, now, settings = {}, host = '') {
   if (dt > 0 && dt <= PAUSE_GAP_MS) {
     if (session.status === 'study') { next.focusMs += dt; next.focusRunMs += dt; }
     else if (session.status === 'distraction') next.distractMs += dt;
+    else if (session.status === 'away') next.awayMs = (next.awayMs || 0) + dt;
     else if (session.status !== 'locked') next.otherMs += dt;
   }
   next.lastAt = Math.max(now, session.lastAt || 0);
@@ -268,6 +292,7 @@ export function step(session, status, now, settings = {}, host = '') {
     } else if (next.warned && on >= s.desertSeconds * 1000
       && (!next.lastDesertAt || now - next.lastDesertAt >= s.repeatSeconds * 1000)) {
       next.lastDesertAt = now;
+      next.desertions = (next.desertions || 0) + 1;
       triggers.push('deserted');
     }
   } else if (prev === 'distraction') {
@@ -279,17 +304,45 @@ export function step(session, status, now, settings = {}, host = '') {
     next.focusRunMs = 0;
     triggers.push('focusBlock');
   }
+  if (status !== 'distraction') next.pendingReturn = null; // you came back on your own: no forced return
+  if (status === 'away') {
+    if (!next.awaySince) next.awaySince = now;
+    if (!next.awayWarned && now - next.awaySince >= s.awaySeconds * 1000) { next.awayWarned = true; triggers.push('away'); }
+  } else if (status !== 'locked' && status !== 'idle') {
+    if (next.awayWarned) triggers.push('returned');
+    next.awaySince = 0;
+    next.awayWarned = false;
+    next.focusedOnce = false;
+  }
   if (status === 'idle' && !next.idleFired) { next.idleFired = true; triggers.push('idle'); }
   if (status !== 'idle' && status !== 'locked') next.idleFired = false;
   return { session: next, triggers };
 }
 
-/** Milliseconds until step() could fire something new without another browser event (for a short wake-up timer). */
+/** Milliseconds until something is due without another browser event (for a short wake-up timer); 0 = nothing. */
 export function nextDueIn(session, now, settings = {}) {
-  if (!session?.active || session.status !== 'distraction' || !session.distractedSince) return 0;
+  if (!session?.active) return 0;
   const s = normalizeSettings(settings);
-  const due = session.warned ? session.distractedSince + s.desertSeconds * 1000 : session.distractedSince + s.graceSeconds * 1000;
-  return Math.max(0, due - now);
+  const due = [];
+  if (session.status === 'distraction' && session.distractedSince) {
+    if (!session.warned) due.push(session.distractedSince + s.graceSeconds * 1000);
+    else if (!session.lastDesertAt) due.push(session.distractedSince + s.desertSeconds * 1000);
+    else due.push(session.lastDesertAt + s.repeatSeconds * 1000);
+  }
+  if (session.pendingReturn?.at) due.push(session.pendingReturn.at);
+  if (session.status === 'away' && session.awaySince && !session.awayWarned) due.push(session.awaySince + s.awaySeconds * 1000);
+  if (!due.length) return 0;
+  return Math.max(1, Math.min(...due) - now);
+}
+
+/**
+ * Status for a page nothing could judge ('unknown'): neutral at first, a distraction once you have stayed on the
+ * same page (`session.unknownKey`, since `session.unknownSince`) for driftMinutes.
+ */
+export function driftStatus(session, now, settings = {}) {
+  const s = normalizeSettings(settings);
+  if (!s.driftMinutes || !session?.unknownSince) return 'neutral';
+  return now - session.unknownSince >= s.driftMinutes * 60_000 ? 'distraction' : 'neutral';
 }
 
 /**
@@ -300,6 +353,43 @@ export function verdictOf(session, now = Date.now()) {
   if (!session || now - session.startedAt < 2 * 60_000) return 'stop';
   if (session.focusMs < 5 * 60_000) return 'abandon';
   return session.distractMs <= 0.15 * (session.focusMs + session.distractMs) ? 'endGood' : 'endBad';
+}
+
+// ---------------------------------------------------------------- punishments
+
+export const LEVELS = Object.freeze({ off: 0, lenient: 1, standard: 2, harsh: 3 });
+
+/**
+ * What the persona does about a trigger, as plain data the service worker carries out:
+ * {say, effects: [...], returnInS, lockoutS, notify, focusWindow}. `say` may differ from the trigger (a desertion that
+ * earns the lockout says the 'lockout' line). Nothing here closes, opens or navigates a tab: the only browser control
+ * is switching back to the existing study tab and bringing the window forward.
+ */
+export function punishmentFor(trigger, session, settings = {}) {
+  const s = normalizeSettings(settings);
+  const lvl = LEVELS[s.discipline] ?? 2;
+  const out = { say: trigger, effects: [], returnInS: 0, lockoutS: 0, notify: false, focusWindow: false };
+  if (!lvl) return out;
+  const fx = (...names) => { if (s.effects) out.effects.push(...names); };
+  if (trigger === 'distracted') fx('flash');
+  if (trigger === 'deserted') {
+    if (lvl === 1) { fx('flash'); return out; }
+    const lock = (session?.strikes || 0) >= s.lockoutStrikes || (lvl >= 3 && (session?.desertions || 0) >= 2);
+    if (lock && s.effects) {
+      out.say = 'lockout';
+      out.effects.push('grayscale', 'lockout');
+      out.lockoutS = Math.min(60, s.lockoutSeconds);
+      out.returnInS = out.lockoutS; // back to the study tab when the lockout lifts (if you are still there)
+    } else {
+      fx('shake', 'grayscale', 'countdown');
+      out.returnInS = s.countdownSeconds;
+    }
+  }
+  if (trigger === 'away') {
+    out.notify = true;
+    out.focusWindow = lvl >= 3 && !session?.focusedOnce;
+  }
+  return out;
 }
 
 /** Whether a trigger may speak now, given when the last line played. */
