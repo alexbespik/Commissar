@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Commissar Settings</title>
+  <link rel="stylesheet" href="ui.css">
+  <style>
+    body { padding: 24px 16px 60px; }
+    main { max-width: 760px; margin: 0 auto; }
+    section { border-top: 1px solid var(--line); margin-top: 18px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 16px; }
+    @media (max-width: 600px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .chips button { font-size: 12px; padding: 4px 9px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+    th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    td code { font: 11px ui-monospace, Menlo, monospace; word-break: break-all; }
+    .kind-correct { color: var(--green); } .kind-incorrect { color: #e57368; } .kind-partial { color: var(--gold); }
+    #saveBar { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0; border-top: 1px solid var(--line); margin-top: 24px; display: flex; gap: 10px; align-items: center; }
+    .rule { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; margin: 6px 0; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Commissar Study Watch: settings</h1>
+  <p class="muted">Everything works with no AI and no paid API. Voices are the recorded packs in this extension's folder.</p>
+
+  <section>
+    <h2>Voices</h2>
+    <div class="grid2">
+      <div>
+        <label for="persona">Who is watching</label>
+        <select id="persona"></select>
+      </div>
+      <div>
+        <label for="volume">Volume</label>
+        <input id="volume" type="range" min="0" max="1" step="0.05" style="width:100%">
+      </div>
+    </div>
+    <div id="squadBox" hidden>
+      <label>Squad members (none ticked = everyone)</label>
+      <div id="squad" class="chips"></div>
+    </div>
+    <label>Gravel (deeper, rougher voice) per persona: 0 clean … 3 gravel</label>
+    <div id="rough" class="grid3"></div>
+    <label>Hear a line</label>
+    <div id="preview" class="chips"></div>
+    <label class="check"><input id="ttsFallback" type="checkbox"> Use the browser's own voice when a persona has no recorded line</label>
+    <label class="check"><input id="overlay" type="checkbox"> Show the line on screen as a banner (needs access to sites)</label>
+  </section>
+
+  <section>
+    <h2>What counts as studying</h2>
+    <div class="grid2">
+      <div><label for="allowlist">Study sites (one per line; <code>host</code> or <code>host/path</code>)</label><textarea id="allowlist"></textarea></div>
+      <div><label for="blocklist">Distraction sites</label><textarea id="blocklist"></textarea></div>
+      <div><label for="ambiguous">Mixed sites: the page title decides (a lecture is study)</label><textarea id="ambiguous"></textarea></div>
+      <div><label for="studyKeywords">Study words in a title or address</label><textarea id="studyKeywords"></textarea></div>
+    </div>
+    <label class="check"><input id="strictUnknown" type="checkbox"> Strict: any page not judged as study counts as distraction</label>
+    <label class="check"><input id="punishOutsideBrowser" type="checkbox"> Leaving the browser counts as distraction (off: you may be in a PDF reader or Anki)</label>
+    <label class="check"><input id="readPages" type="checkbox"> Read each page's own text locally to spot study material (needs access to sites; nothing is sent anywhere)</label>
+    <div class="grid3">
+      <div><label for="graceSeconds">Grace before a warning (s)</label><input id="graceSeconds" type="number" min="0" max="60"></div>
+      <div><label for="desertSeconds">Still there → desertion after (s)</label><input id="desertSeconds" type="number" min="15" max="3600"></div>
+      <div><label for="repeatSeconds">Repeat every (s)</label><input id="repeatSeconds" type="number" min="30" max="3600"></div>
+      <div><label for="focusMinutes">Focus block (min)</label><input id="focusMinutes" type="number" min="5" max="180"></div>
+      <div><label for="idleMinutes">No input → idle after (min)</label><input id="idleMinutes" type="number" min="1" max="60"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Right and wrong answers</h2>
+    <p class="muted small">WebAssign is built in. Teach any other homework or quiz site from a saved copy of one of its pages (in the browser: Save Page As → Webpage, Complete).</p>
+    <label class="check"><input id="answersAlways" type="checkbox"> React to answers even when no session is running</label>
+    <label class="check"><input id="autoDetect" type="checkbox"> Look for right / wrong marks on every site with common names (needs access to sites)</label>
+    <div id="rules"></div>
+
+    <h2 style="font-size:14px">Teach a site from a saved page</h2>
+    <label for="teachFiles">The saved .html page, plus the .css files from its <code>_files</code> folder if you have them</label>
+    <input id="teachFiles" type="file" multiple accept=".html,.htm,.css,text/html,text/css">
+    <div id="teach" hidden>
+      <div class="grid2">
+        <div><label for="tHost">Site</label><input id="tHost" type="text" placeholder="e.g. quizsite.com"></div>
+        <div><label for="tName">Name</label><input id="tName" type="text"></div>
+      </div>
+      <label>Marks found: check what each one means (on page = how many are in the saved page now)</label>
+      <table><thead><tr><th>Selector</th><th>On page</th><th>Means</th></tr></thead><tbody id="tMarks"></tbody></table>
+      <div class="grid3">
+        <div><label for="tQuestion">Question box (optional)</label><input id="tQuestion" type="text"></div>
+        <div><label for="tScore">Score inside it, like 1/2</label><input id="tScore" type="text"></div>
+        <div><label for="tSubs">Submissions inside it, like 1/5</label><input id="tSubs" type="text"></div>
+      </div>
+      <div class="row" style="margin-top:10px"><button id="tTest" class="shrink">Test on the saved page</button><span id="tResult" class="small muted"></span></div>
+      <div class="row" style="margin-top:10px"><button id="tSave" class="primary shrink">Save rule and allow the site</button></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Optional: Gemini for pages nothing else can judge</h2>
+    <p class="muted small">Off by default. Only asks about a page that is on no list, has no study words, and you stayed on for a while; at most the daily cap; each answer is remembered for a week. Sends the page title, site and path (and the start of the page text only if you tick it). Google's free tier may use what you send to improve its products.</p>
+    <label class="check"><input id="gEnabled" type="checkbox"> Use Gemini</label>
+    <div class="grid2">
+      <div><label for="gKey">API key (from Google AI Studio; kept only in this browser)</label><input id="gKey" type="password" autocomplete="off"></div>
+      <div><label for="gModel">Model (check the current free model name in AI Studio)</label><input id="gModel" type="text"></div>
+      <div><label for="gCap">Daily cap</label><input id="gCap" type="number" min="0" max="1000"></div>
+      <div><label for="gAfter">Ask after staying (s)</label><input id="gAfter" type="number" min="5" max="600"></div>
+    </div>
+    <label class="check"><input id="gSnippet" type="checkbox"> Also send the start of the page text (better answers, more private data)</label>
+    <div id="gUsage" class="small muted"></div>
+  </section>
+
+  <section>
+    <h2>Access</h2>
+    <div id="perm" class="small"></div>
+    <div class="row" style="margin-top:8px"><button id="grantAll" class="shrink">Allow on all sites</button><button id="revokeAll" class="shrink">Remove site access</button></div>
+  </section>
+
+  <div id="saveBar"><button id="save" class="primary">Save settings</button><span id="saved" class="small muted"></span></div>
+</main>
+<script src="answers.js"></script>
+<script type="module" src="options.js"></script>
+</body>
+</html>

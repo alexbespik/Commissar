@@ -1,0 +1,40 @@
+:root {
+  --bg: #15130f; --panel: #1e1b16; --line: #3a342a; --text: #eee6d3; --muted: #a39a86;
+  --red: #c0392b; --gold: #c9a227; --green: #4f9a55;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+h1, h2 { font-family: Georgia, 'Times New Roman', serif; font-weight: 600; margin: 0; }
+h1 { font-size: 17px; letter-spacing: .02em; }
+h2 { font-size: 15px; margin: 22px 0 8px; color: var(--gold); }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+label { display: block; margin: 8px 0 4px; color: var(--muted); font-size: 12px; }
+input[type=text], input[type=number], input[type=password], select, textarea {
+  width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 5px;
+  padding: 7px 9px; font: inherit;
+}
+textarea { min-height: 90px; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+button {
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 5px; padding: 7px 12px;
+  font: inherit; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--red); border-color: var(--red); color: #fff; font-weight: 600; }
+button.primary.stop { background: var(--panel); border-color: var(--red); color: var(--text); }
+button.good { border-color: var(--green); }
+button.bad { border-color: var(--red); }
+button:disabled { opacity: .5; cursor: default; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row > * { flex: 1; }
+.row > .shrink { flex: 0 0 auto; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--line); color: var(--muted); }
+.pill.study { color: var(--green); border-color: var(--green); }
+.pill.distraction { color: var(--red); border-color: var(--red); }
+.pill.on { color: var(--gold); border-color: var(--gold); }
+.check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; color: var(--text); font-size: 13px; }
+.check input { margin-top: 3px; }
+.note { border-left: 3px solid var(--gold); padding: 6px 10px; background: var(--panel); border-radius: 0 5px 5px 0; margin: 8px 0; }
+.err { color: #e57368; }

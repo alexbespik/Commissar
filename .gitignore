@@ -1,0 +1,14 @@
+.env
+.env.*
+node_modules/
+.DS_Store
+*.tmp
+# saved homework pages hold your account details and a session id
+*WebAssign*
+*webassign*.html
+.claude/launch.json
+.claude/
+# voice packs stay on your computer: the Commissar clips are ElevenLabs output (free-plan terms), the Democracy
+# Officer clips are a personal recording. The repo ships the line texts and tools/gen-voice.mjs instead.
+/commissar/
+/helldiver/

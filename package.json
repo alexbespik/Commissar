@@ -1,0 +1,12 @@
+{
+  "name": "commissar-study-watch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser extension: persona voices keep you studying. No dependencies; package.json only marks the sources as ES modules for node --test.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/",
+    "check": "node tools/check.mjs",
+    "voice": "node tools/gen-voice.mjs"
+  }
+}

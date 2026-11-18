@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Commissar Study Watch</title>
+  <link rel="stylesheet" href="ui.css">
+  <style>
+    body { width: 330px; padding: 14px; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .clock { font: 600 30px/1 Georgia, serif; letter-spacing: .03em; margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 10px 0; }
+    .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 6px; text-align: center; }
+    .stat b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
+    .stat span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .page { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; margin: 10px 0; }
+    .page .host { font-weight: 600; word-break: break-all; }
+    footer { display: flex; justify-content: space-between; margin-top: 12px; }
+    footer button { padding: 5px 10px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Commissar Study Watch</h1>
+    <span id="state" class="pill">off</span>
+  </header>
+
+  <div id="idle">
+    <label for="subject">What are you studying?</label>
+    <input id="subject" type="text" maxlength="120" placeholder="e.g. Calculus antiderivatives" autocomplete="off">
+    <label for="persona">Who is watching</label>
+    <select id="persona"></select>
+    <button id="start" class="primary" style="width:100%;margin-top:12px">Begin session</button>
+  </div>
+
+  <div id="running" hidden>
+    <div class="muted small" id="subjectLine"></div>
+    <div class="clock" id="clock">00:00</div>
+    <div class="stats">
+      <div class="stat"><b id="focus">0</b><span>focus min</span></div>
+      <div class="stat"><b id="drift">0</b><span>drift min</span></div>
+      <div class="stat"><b id="strikes">0</b><span>strikes</span></div>
+      <div class="stat"><b id="answers">0/0</b><span>right/wrong</span></div>
+    </div>
+    <button id="stop" class="primary stop" style="width:100%">End session</button>
+  </div>
+
+  <div class="page" id="pageBox" hidden>
+    <div class="row"><div><div class="host" id="host"></div><div class="muted small" id="pageVerdict"></div></div></div>
+    <div class="row" style="margin-top:8px">
+      <button id="markStudy" class="good">Study site</button>
+      <button id="markDistraction" class="bad">Distraction</button>
+    </div>
+  </div>
+
+  <div id="permNote" class="note small" hidden>
+    On-screen warnings and page reading need access to the sites you visit (only used locally).
+    <div style="margin-top:6px"><button id="grant">Allow on all sites</button></div>
+  </div>
+
+  <footer>
+    <button id="silence">Silence</button>
+    <button id="options">Settings</button>
+  </footer>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
