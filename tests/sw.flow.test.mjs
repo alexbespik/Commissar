@@ -411,6 +411,86 @@ test('the Mac helper: the app in front decides, screamers go to it, its button g
   store.session.passUntil = 0;
 });
 
+test('tracker mode: records time by site and app, forces and says nothing', async () => {
+  await settle();
+  await ask({ type: 'stop' }); // the overseer session of the tests above
+  await settle();
+  delete store.trackDays;
+  store.settings = { ...store.settings, camera: true, nativeOverlay: true, discipline: 'harsh', screamers: true, graceSeconds: 0, desertSeconds: 15 };
+  const tabUpdates = [];
+  const winUpdates = [];
+  const notes = [];
+  chrome.tabs.update = async (id, props) => { tabUpdates.push([id, props]); return {}; };
+  chrome.windows.update = async (id, props) => { winUpdates.push([id, props]); return {}; };
+  chrome.notifications.create = async (...a) => { notes.push(a); return ''; };
+  const started = await ask({ type: 'start', subject: 'calculus', mode: 'tracker' });
+  assert.equal(started?.ok, true, JSON.stringify(started));
+  assert.equal(started.session.mode, 'tracker');
+  await settle();
+  const plays = () => sent.filter((m) => m.target === 'offscreen' || m.target === 'post').length;
+  const base = { sent: plays(), injected: injected.length, created: created.length, posted: fakeHelper.posted.length };
+
+  currentTab = { id: 2, windowId: 1, active: true, url: 'https://www.reddit.com/r/funny', title: 'funny' };
+  chrome.tabs.onActivated.fire({ tabId: 2 });
+  await settle();
+  store.session.lastAt = Date.now() - 5000; // five seconds on reddit since the last look
+  chrome.alarms.onAlarm.fire({ name: 'tick' });
+  await settle();
+  assert.ok(store.session.apps['reddit.com'].s >= 4000, JSON.stringify(store.session.apps));
+
+  chrome.windows.getLastFocused = async () => ({ id: 1, focused: false });
+  fakeHelper.say({ type: 'app', name: 'Telegram', bundle: 'ru.keepcoder.Telegram' });
+  await settle();
+  // long enough in Telegram for the warning, the pointing and the shot
+  Object.assign(store.session, { awaySince: Date.now() - 60_000, lastAt: Date.now() - 4000 });
+  chrome.alarms.onAlarm.fire({ name: 'tick' });
+  await settle();
+  assert.ok(store.session.apps.Telegram.s >= 3000, JSON.stringify(store.session.apps));
+  await ask({ type: 'camera', phone: true, person: true }, { id: 'testid', url: `${EXT}src/offscreen.html` });
+  await ask({ type: 'outsidePass' });
+  await settle();
+
+  assert.equal(plays(), base.sent, 'a message went to the player, the camera or the post window');
+  assert.equal(injected.length, base.injected, 'something was injected into a page');
+  assert.equal(created.length, base.created, 'a window was opened');
+  assert.equal(fakeHelper.posted.length, base.posted, `the helper was sent: ${JSON.stringify(fakeHelper.posted.slice(base.posted).map((m) => m.type))}`);
+  assert.deepEqual(notes, []);
+  assert.deepEqual(tabUpdates, []);
+  assert.deepEqual(winUpdates, []);
+  assert.equal(store.session.penance ?? null, null);
+  assert.equal(store.session.passUntil || 0, 0);
+
+  chrome.windows.getLastFocused = async () => ({ id: 1, focused: true });
+  const r = await ask({ type: 'stop' });
+  assert.equal(r?.ok, true);
+  const today = new Date().toLocaleDateString('en-CA');
+  assert.ok(store.trackDays[today].apps['reddit.com'].s > 0);
+  assert.ok(store.trackDays[today].apps.Telegram.s > 0);
+  assert.equal(store.history[0].mode, 'tracker');
+  assert.equal(store.history[0].result, 'tracked');
+  assert.ok(store.history[0].apps.some((a) => a.key === 'Telegram'));
+  const view = await ask({ type: 'status' });
+  assert.ok(view.today.rows.some((a) => a.key === 'reddit.com'));
+  assert.equal(view.last.mode, 'tracker');
+  assert.equal(typeof view.helper, 'boolean');
+  chrome.tabs.update = async () => ({});
+  chrome.windows.update = async () => ({});
+  store.settings = { ...store.settings, camera: false, nativeOverlay: false };
+});
+
+test('a new day: the old day goes to the log and the session starts a fresh one', async () => {
+  await settle();
+  await ask({ type: 'start', subject: '', mode: 'tracker' });
+  await settle();
+  const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString('en-CA');
+  Object.assign(store.session, { day: yesterday, dayApps: { 'old.example': { w: 1000, s: 0, n: 0 } } });
+  chrome.alarms.onAlarm.fire({ name: 'tick' });
+  await settle();
+  assert.equal(store.trackDays[yesterday].apps['old.example'].w, 1000);
+  assert.deepEqual([store.session.day === yesterday, 'old.example' in store.session.dayApps], [false, false]);
+  await ask({ type: 'stop' });
+});
+
 test('ending the session stops everything (and lets this test run finish)', async () => {
   await settle();
   const r = await ask({ type: 'stop' });

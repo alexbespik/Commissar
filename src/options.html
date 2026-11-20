@@ -53,6 +53,16 @@
   </section>
 
   <section>
+    <h2>Mode</h2>
+    <label for="mode">What a session does</label>
+    <select id="mode">
+      <option value="overseer">Overseer: voice, punishments and the camera watch</option>
+      <option value="tracker">Tracker: silently records work and slack time, nothing is forced</option>
+    </select>
+    <p class="muted small">Either way the extension records how long you spend on each site and in each app (apps need the Mac helper). Tracker only records: no voice, no burned tabs, no pulling you back, no camera. The choice in the popup applies from the next session. The log (site hosts and app names per day, the last 14 days) stays on this computer; Gemini, if you enabled it, still classifies pages.</p>
+  </section>
+
+  <section>
     <h2>Discipline</h2>
     <p class="muted small">How the persona punishes drifting. Nothing is ever closed: a burned tab becomes the condemned page (Back restores it), and you are switched back to a tab you were studying on.</p>
     <div class="grid3">

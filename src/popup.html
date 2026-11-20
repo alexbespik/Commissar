@@ -15,6 +15,8 @@
     .stat span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
     .page { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; margin: 10px 0; }
     .page .host { font-weight: 600; word-break: break-all; }
+    .apps { margin: 6px 0; font-size: 12px; }
+    .apps div { padding: 2px 0; border-bottom: 1px solid var(--line); word-break: break-all; }
     footer { display: flex; justify-content: space-between; margin-top: 12px; }
     footer button { padding: 5px 10px; font-size: 12px; }
   </style>
@@ -30,23 +32,38 @@
     <input id="subject" type="text" maxlength="120" placeholder="e.g. Calculus antiderivatives" autocomplete="off">
     <label for="persona">Who is watching</label>
     <select id="persona"></select>
+    <label for="mode">Mode</label>
+    <select id="mode">
+      <option value="overseer">Overseer: voice, punishments, camera</option>
+      <option value="tracker">Tracker: only records work and slack</option>
+    </select>
     <button id="start" class="primary" style="width:100%;margin-top:12px">Begin session</button>
+    <div id="lastBox" hidden>
+      <div class="muted small" id="lastHead" style="margin-top:12px"></div>
+      <div id="lastApps" class="apps"></div>
+    </div>
   </div>
 
   <div id="running" hidden>
     <div class="muted small" id="subjectLine"></div>
     <div class="clock" id="clock">00:00</div>
-    <div class="stats">
+    <div class="stats" id="stats">
       <div class="stat"><b id="focus">0</b><span>focus min</span></div>
       <div class="stat"><b id="drift">0</b><span>drift min</span></div>
       <div class="stat"><b id="strikes">0</b><span>strikes</span></div>
       <div class="stat"><b id="answers">0/0</b><span>right/wrong</span></div>
     </div>
     <div class="muted small" id="discLine" style="margin:-4px 0 10px"></div>
-    <div class="row" style="margin-bottom:8px"><button id="returnNow">Back to study tab</button></div>
-    <div class="row" style="margin-bottom:8px"><button id="pass" title="Other apps and unjudged sites are allowed for 10 minutes (press again for more, up to 30). Distraction sites are still punished.">I need outside resources (10 min)</button><button id="passEnd" class="shrink" hidden>Done</button></div>
+    <div class="row" id="returnRow" style="margin-bottom:8px"><button id="returnNow">Back to study tab</button></div>
+    <div class="row" id="passRow" style="margin-bottom:8px"><button id="pass" title="Other apps and unjudged sites are allowed for 10 minutes (press again for more, up to 30). Distraction sites are still punished.">I need outside resources (10 min)</button><button id="passEnd" class="shrink" hidden>Done</button></div>
+    <div id="trackBox" hidden>
+      <div id="runApps" class="apps"></div>
+    </div>
     <button id="stop" class="primary stop" style="width:100%">End session</button>
   </div>
+
+  <div id="todayLine" class="muted small" style="margin:6px 0" hidden></div>
+  <div id="helperHint" class="note small" hidden>App names need the Mac helper (Settings → Mac helper)</div>
 
   <div class="page" id="pageBox" hidden>
     <div class="row"><div><div class="host" id="host"></div><div class="muted small" id="pageVerdict"></div></div></div>

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classify, step, newSession, verdictOf, maySpeak, pickClip, sanitizePack, matchesList, pageKey, normalizeSettings,
-  nextDueIn, cleanRules, TRIGGERS,
+  nextDueIn, cleanRules, TRIGGERS, modeCaps, trackKey, trackKind, accrue, rollDay, mergeDay, summarize, todayView,
+  localDay, TRACK_MAX_KEYS,
 } from '../src/core.js';
 
 const S = normalizeSettings({});
@@ -589,4 +590,92 @@ test('looking away is judged against where your face usually points (a camera of
   assert.equal(g(face(0.37)).look, 'screen', 'and looking back is the screen at once');
   assert.equal(g({}).look, 'none');
   assert.equal(normalizeSettings({ schemaVersion: 3, lookAwaySeconds: 20 }).lookAwaySeconds, 8);
+});
+
+test('modes: settings keep a known one, a session without one is an overseer', () => {
+  assert.equal(normalizeSettings({}).mode, 'overseer');
+  assert.equal(normalizeSettings({ mode: 'tracker' }).mode, 'tracker');
+  assert.equal(normalizeSettings({ mode: 'nope' }).mode, 'overseer');
+  assert.equal(modeCaps({}).punish, true);
+  assert.equal(modeCaps(null).speak, true);
+  assert.deepEqual(modeCaps({ mode: 'tracker' }), { speak: false, punish: false, camera: false, checkIn: false });
+  assert.equal(newSession(1, '', 'tracker').mode, 'tracker');
+  assert.equal(verdictOf({ ...newSession(0, '', 'tracker') }, 3_600_000), 'tracked');
+});
+
+test('trackKey and trackKind', () => {
+  assert.equal(trackKey({ url: 'https://www.Reddit.com/r/x' }), 'reddit.com');
+  assert.equal(trackKey({ url: 'file:///Users/a/b.pdf' }), 'Local files');
+  assert.equal(trackKey({ url: 'chrome://settings' }), '(browser pages)');
+  assert.equal(trackKey({ url: '' }), '(browser pages)');
+  assert.equal(trackKey({ url: 'https://reddit.com/', incognito: true }), '(private window)');
+  assert.equal(trackKey({ outside: true, app: { name: '  Telegram ' }, url: 'https://reddit.com/' }), 'Telegram');
+  assert.equal(trackKey({ outside: true, app: null }), 'Other apps');
+  assert.equal(trackKey({ outside: true, app: { name: 'x'.repeat(100) } }).length, 60);
+  assert.equal(trackKey({ idle: true, url: 'https://reddit.com/' }), '');
+  assert.equal(trackKind('study'), 'w');
+  assert.equal(trackKind('distraction'), 's');
+  assert.equal(trackKind('away', 'distraction'), 's');
+  assert.equal(trackKind('away', 'neutral'), 'n');
+  assert.equal(trackKind('away'), 'n');
+  assert.equal(trackKind('neutral'), 'n');
+  assert.equal(trackKind('excused', 'distraction'), 'n');
+});
+
+test('step books the slice under what the previous look saw', () => {
+  const t0 = 1_000_000;
+  let s = newSession(t0);
+  s = step(s, 'study', t0, S, 'youtube.com', { key: 'youtube.com', kind: 'w' }).session;
+  s = step(s, 'distraction', t0 + 10_000, S, 'youtube.com', { key: 'youtube.com', kind: 's' }).session;
+  s = step(s, 'distraction', t0 + 15_000, S, 'youtube.com', { key: 'youtube.com', kind: 's' }).session;
+  assert.deepEqual(s.apps, { 'youtube.com': { w: 10_000, s: 5_000, n: 0 } });
+  assert.deepEqual(s.dayApps, s.apps);
+  // a gap over 90 s counts nothing, and neither does a locked screen
+  s = step(s, 'study', t0 + 200_000, S, '', { key: 'a.com', kind: 'w' }).session;
+  assert.equal(s.apps['a.com'], undefined);
+  assert.equal(s.apps['youtube.com'].s, 5_000);
+  s = step(s, 'locked', t0 + 210_000, S, '', null).session;
+  assert.equal(s.apps['a.com'].w, 10_000);
+  assert.equal(s.trackKey, '');
+  s = step(s, 'study', t0 + 220_000, S, '', { key: 'b.com', kind: 'w' }).session;
+  assert.equal(s.apps['b.com'], undefined);
+  // without a track nothing is booked and nothing else changes
+  const plain = step(newSession(t0), 'study', t0 + 5000, S);
+  assert.deepEqual(plain.session.apps, {});
+});
+
+test('accrue keeps at most TRACK_MAX_KEYS keys', () => {
+  let apps = {};
+  for (let i = 0; i < TRACK_MAX_KEYS; i += 1) apps = accrue(apps, `k${i}`, 'w', 1);
+  apps = accrue(apps, 'new.example', 's', 7);
+  assert.equal(apps['new.example'], undefined);
+  assert.equal(apps['(other)'].s, 7);
+  assert.equal(accrue(apps, 'k0', 'w', 2).k0.w, 3); // a known key still counts under its own name
+});
+
+test('rollDay flushes the old day once', () => {
+  const t = new Date(2026, 5, 10, 23, 59).getTime();
+  const s = { ...newSession(t), dayApps: { 'a.com': { w: 5, s: 0, n: 0 } } };
+  const same = rollDay(s, t + 30_000);
+  assert.equal(same.flush, null);
+  const next = rollDay(s, t + 120_000);
+  assert.deepEqual(next.flush, { day: '2026-06-10', apps: { 'a.com': { w: 5, s: 0, n: 0 } } });
+  assert.deepEqual([next.session.day, next.session.dayApps], ['2026-06-11', {}]);
+  assert.equal(rollDay(next.session, t + 180_000).flush, null);
+});
+
+test('mergeDay sums, prunes to the newest days; summarize sorts; todayView adds the live part', () => {
+  let days = {};
+  for (let d = 1; d <= 16; d += 1) days = mergeDay(days, `2026-06-${String(d).padStart(2, '0')}`, { 'a.com': { w: d, s: 0, n: 0 } });
+  assert.equal(Object.keys(days).length, 14);
+  assert.ok(!days['2026-06-02'] && days['2026-06-03']);
+  days = mergeDay(days, '2026-06-16', { 'a.com': { w: 4, s: 1, n: 0 }, 'b.com': { w: 0, s: 9, n: 0 } });
+  assert.deepEqual([days['2026-06-16'].w, days['2026-06-16'].s], [20, 10]);
+  const sum = summarize({ x: { w: 1, s: 0, n: 0 }, y: { w: 0, s: 5, n: 1 }, z: { w: 2, s: 0, n: 0 } }, 2);
+  assert.deepEqual(sum.rows.map((r) => r.key), ['y', 'z']);
+  assert.deepEqual([sum.w, sum.s, sum.n], [3, 5, 1]);
+  const now = new Date(2026, 5, 16, 12).getTime();
+  const view = todayView(days, { day: localDay(now), dayApps: { 'a.com': { w: 100, s: 0, n: 0 } } }, now);
+  assert.equal(view.rows.find((r) => r.key === 'a.com').w, 120);
+  assert.equal(todayView(days, { day: '2026-06-15', dayApps: { 'a.com': { w: 100, s: 0, n: 0 } } }, now).w, 16 + 4);
 });

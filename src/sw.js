@@ -2,13 +2,13 @@
 // All listeners are registered at the top level; all state is in chrome.storage.local (store.js), so it does not
 // matter when Chrome stops and restarts this worker.
 import {
-  driftStatus, classify, step, newSession, verdictOf, maySpeak, pickClip, sanitizePack, nextDueIn, hostOf, pageKey, pathKey,
+  localDay, driftStatus, classify, step, newSession, verdictOf, maySpeak, pickClip, sanitizePack, nextDueIn, hostOf, pageKey, pathKey,
   matchesList, TRIGGERS, subjectWords, punishmentFor, nextCheckIn, peekSpot, PASS_MINUTES, PASS_MAX_MINUTES, cameraStep, cameraBusy,
-  classifyApp,
+  classifyApp, modeCaps, trackKey, trackKind, rollDay, summarize, todayView,
 } from './core.js';
 import {
   serial, getSettings, saveSettings, getSession, setSession, getVerdicts, liveVerdicts, putVerdict, swapSnapshot,
-  pushHistory,
+  pushHistory, getTrackDays, mergeTrackDay,
 } from './store.js';
 import { playClip, playSfx, speakText, stopAudio, setCamera } from './audio.js';
 import { MARCH, COLORS, BUST } from './pixelart.js';
@@ -50,11 +50,15 @@ async function loadPacks() {
 const TONE = { abandon: 'warn', back: 'good', focusBlock: 'good', endGood: 'good', quizPass: 'good', allDone: 'good', start: 'info', stop: 'info' };
 
 
+/** What the running session may do (a tracker one forces and says nothing); no session: everything, as before. */
+const liveCaps = async () => { const s = await getSession(); return modeCaps(s?.active ? s : null); };
+
 /**
  * Speaks one trigger: a clip from the chosen persona(s), the optional browser voice, and the banner on `tab`.
  * Returns {lastSpokenAt, lastFile} for the session, or null when nothing was said.
  */
-async function speak(trigger, { settings, tab, lastFile = '', meta = '', fx = null, silent = false }) {
+async function speak(trigger, { settings, tab, lastFile = '', meta = '', fx = null, silent = false, force = false }) {
+  if (!force && !(await liveCaps()).speak) return null; // force: a test from Settings
   const packs = await loadPacks();
   const clip = pickClip(packs, settings, trigger, Math.random, lastFile);
   const caption = clip?.caption || TRIGGERS[trigger]?.caption || '';
@@ -175,16 +179,24 @@ async function pageSenseFor(url) {
 
 /** Looks at what you are doing now, advances the session and says what it triggers. */
 async function evaluate() {
-  const session = await getSession();
+  let session = await getSession();
   if (!session?.active) { badge(null); return; }
   const settings = await getSettings();
   const now = Date.now();
+  const caps = modeCaps(session);
+  const rolled = rollDay(session, now); // a new day: yesterday's part goes to the log
+  if (rolled.flush) { // saved at once, so an interrupted tick cannot flush the same day twice
+    await mergeTrackDay(rolled.flush.day, rolled.flush.apps).catch(() => {});
+    await setSession(rolled.session);
+  }
+  session = rolled.session;
   const idle = await chrome.idle.queryState(Math.round(settings.idleMinutes * 60)).catch(() => 'active');
   const win = await chrome.windows.getLastFocused().catch(() => null);
   const tab = await currentTab();
   let status;
   let verdict = '';
   let appKind = '';
+  let app = null;
   // "I need outside resources": other apps and unjudged pages are allowed until passUntil (distraction sites are not)
   const onPass = now < (session.passUntil || 0);
   const known = await allVerdicts(settings, now);
@@ -198,7 +210,7 @@ async function evaluate() {
   else if (outside) {
     // the Mac helper says which app is in front: a study app (a PDF reader, Anki, notes) is studying; a distraction
     // app (Telegram, Discord, a game) brings the out-of-browser punishments after appDistractSeconds instead
-    const app = settings.nativeOverlay ? frontApp() : null;
+    app = settings.nativeOverlay ? frontApp() : null;
     appKind = app ? classifyApp(app, settings) : '';
     if (app) session.lastApp = app.name;
     status = onPass ? 'excused' : appKind === 'study' ? 'study' : 'away';
@@ -225,7 +237,9 @@ async function evaluate() {
     tracked.awayStage = 0;
   }
   tracked.awayKind = status === 'away' ? appKind : '';
-  const res = step(tracked, status, now, stepWith, host);
+  // what the time until the next look is booked under (a site or an app), whatever the mode
+  const track = { key: trackKey({ idle: status === 'idle' || status === 'locked', outside, app, url: tab?.url || '', incognito: Boolean(tab?.incognito) }), kind: trackKind(status, appKind) };
+  const res = step(tracked, status, now, stepWith, host, track);
   const next = res.session;
 
   // optional Gemini check for a page the local rules could not decide, once you have stayed on it a while
@@ -247,7 +261,7 @@ async function evaluate() {
 
   // a forced return that has come due (cancelled by step() if you went back on your own)
   // (cancelled by step() only if you went back to study: hopping to another distraction or app does not save the tab)
-  if (next.pendingReturn && now >= next.pendingReturn.at) {
+  if (caps.punish && next.pendingReturn && now >= next.pendingReturn.at) {
     const pr = next.pendingReturn;
     next.pendingReturn = null;
     if (pr.condemn) {
@@ -262,11 +276,12 @@ async function evaluate() {
   // the outside-resources pass ran out
   if (session.passUntil && now >= session.passUntil) {
     next.passUntil = 0;
-    res.triggers.push('passEnd');
+    if (caps.punish) res.triggers.push('passEnd');
   }
 
   // random check-ins, every 1 to 5 minutes while you are in the browser: he peeks in from an edge, "I am watching you"
-  if ((status !== 'study' && status !== 'neutral') || outside) next.nextCheckInAt = nextCheckIn(now); // in the browser only; not right after you come back
+  if (!caps.checkIn) next.nextCheckInAt = 0;
+  else if ((status !== 'study' && status !== 'neutral') || outside) next.nextCheckInAt = nextCheckIn(now); // in the browser only; not right after you come back
   else {
     if (!next.nextCheckInAt) next.nextCheckInAt = nextCheckIn(now);
     else if (now >= next.nextCheckInAt && !res.triggers.length) {
@@ -277,7 +292,7 @@ async function evaluate() {
   }
 
   let spoke = false;
-  for (const trigger of res.triggers) {
+  for (const trigger of caps.punish ? res.triggers : []) { // a tracker session only records: no voice, no effects
     const fx = punishmentFor(trigger, next, settings);
     // our own switch back to the study tab is not something to praise (a screamer waiting for you still comes)
     // (and when our own pull-back is what brought you, the screamer you got while away was enough)
@@ -295,7 +310,7 @@ async function evaluate() {
       next.pendingReturn = { at: now + fx.returnInS * 1000, fromTabId: tab.id, condemn: fx.condemn, host: hostOf(tab.url || '') };
     }
     if (fx.effects.includes('lockout') && tab?.id != null) next.lockoutTabs = [...new Set([...(next.lockoutTabs || []), tab.id])].slice(-20);
-    if (fx.notify && now - (next.lastNotifyAt || 0) >= 30_000) { notify(fx.say, settings); next.lastNotifyAt = now; } // not every 10 s
+    if (fx.notify && now - (next.lastNotifyAt || 0) >= 30_000) { notify(fx.say, settings, next); next.lastNotifyAt = now; } // not every 10 s
     if (fx.focusWindow) { next.focusedOnce = true; next.forcedReturnAt = now; await pullBack(next, settings); }
     if (fx.screamer) next.scareWindowId = await openScare(fx.screamer, fx.say, next.scareWindowId, settings, { inBrowser: !outside });
     const say = !spoke && maySpeak(fx.say, next.lastSpokenAt, now);
@@ -304,7 +319,7 @@ async function evaluate() {
   }
   // the camera watch went quiet (the offscreen document was closed, the camera was taken): start it again
   // (not after a problem retrying cannot fix: the camera blocked, no camera, the vision files missing)
-  if (settings.camera && !next.camFatal && now - Math.max(next.camBeat || 0, next.camStartAt || 0) > 45_000 && now - (next.camRetryAt || 0) > 60_000) {
+  if (caps.camera && settings.camera && !next.camFatal && now - Math.max(next.camBeat || 0, next.camStartAt || 0) > 45_000 && now - (next.camRetryAt || 0) > 60_000) {
     next.camRetryAt = now;
     next.camSource = 'offscreen'; // the watch window went quiet (closed): back to the offscreen copy
     setCamera(true).catch(() => {});
@@ -317,10 +332,10 @@ async function evaluate() {
   }
 
   // the writing punishment is owed until it is written: every distracting page you open (or reload) is locked again
-  if (next.penance && status === 'distraction' && !outside && tab?.id != null) await enforcePenance(tab, next, settings);
+  if (caps.punish && next.penance && status === 'distraction' && !outside && tab?.id != null) await enforcePenance(tab, next, settings);
   await setSession(next);
   badge(next);
-  const due = nextDueIn(next, Date.now(), stepWith);
+  const due = caps.punish ? nextDueIn(next, Date.now(), stepWith) : 0;
   if (due > 0 && due < 25_000) setTimeout(schedule, due + 300); // sooner than the next 30 s alarm
 }
 
@@ -329,6 +344,7 @@ async function evaluate() {
  * is closed). The host is remembered for the session: going back there burns again after 15 s.
  */
 async function condemn(tab, session, settings) {
+  if (!modeCaps(session).punish) return;
   const host = hostOf(tab.url || '');
   if (!host || matchesList(tab.url, settings.allowlist)) return;
   const url = chrome.runtime.getURL(`src/condemned.html?host=${encodeURIComponent(host)}`);
@@ -409,6 +425,7 @@ async function findStudyTab(session, settings) {
 
 /** Switches to a study tab (see findStudyTab) and brings its window forward. Never opens or closes tabs. */
 async function returnToStudy(session, settings) {
+  if (!modeCaps(session).punish) return false; // a tracker session never moves you
   const tab = await findStudyTab(session, settings);
   if (!tab) return false;
   session.studyTab = { tabId: tab.id, url: tab.url };
@@ -419,8 +436,8 @@ async function returnToStudy(session, settings) {
 }
 
 /** A system notification (optional permission; macOS Focus or notification settings may hide it). */
-function notify(trigger, settings) {
-  if (!chrome.notifications?.create) return;
+function notify(trigger, settings, session) {
+  if (!chrome.notifications?.create || !modeCaps(session).punish) return;
   chrome.notifications.create(`commissar-${Date.now()}`, {
     type: 'basic', iconUrl: 'icons/icon128.png', title: 'Commissar Study Watch',
     message: TRIGGERS[trigger]?.caption || 'Return to your materials.', priority: 1,
@@ -429,6 +446,7 @@ function notify(trigger, settings) {
 
 /** You are in another app: switch the browser to a study tab, flash it and pull it to the front (best effort). */
 async function pullBack(session, settings) {
+  if (!modeCaps(session).punish) return;
   const back = await returnToStudy(session, settings); // focuses the study tab's window
   await bringBrowserForward(session, { focus: !back });
   // macOS 14+ ignores a background browser asking to come forward; the Mac helper can do it
@@ -485,6 +503,7 @@ async function checkIn(tab, settings, session) {
  * with the officer pointing at you or firing. Replaces the previous one; it closes itself after 15 s.
  */
 async function openScare(kind, trigger, previousId, settings, { inBrowser = false } = {}) {
+  if (!(await liveCaps()).punish) return null;
   await removeOwnWindow(previousId, 'src/scare.html');
   const line = TRIGGERS[trigger]?.caption || '';
   // out of the browser: macOS keeps a background app's new windows behind the app you are in. The Mac helper shows
@@ -515,6 +534,7 @@ async function openScare(kind, trigger, previousId, settings, { inBrowser = fals
  */
 async function openPost(session) {
   await closePost(session);
+  if (!modeCaps(session).camera) return;
   const win = await chrome.windows.create({ url: chrome.runtime.getURL('src/post.html'), type: 'popup', width: 380, height: 420, focused: true }).catch(() => null);
   session.postWindowId = win?.id ?? null;
 }
@@ -553,7 +573,7 @@ async function startNative(session) {
 /** "I need outside resources": +PASS_MINUTES each time, never more than PASS_MAX_MINUTES ahead; `end` ends it. */
 async function grantPass({ end = false } = {}) {
   const session = await getSession();
-  if (!session?.active) return { passUntil: 0 };
+  if (!session?.active || !modeCaps(session).punish) return { passUntil: 0 }; // a tracker session has nothing to excuse
   const now = Date.now();
   const settings = await getSettings();
   if (end) {
@@ -573,6 +593,7 @@ async function grantPass({ end = false } = {}) {
 // the helper reports a new app in front (look again now) or a click (from an older helper's panel)
 onNative({
   app: () => schedule(),
+  // (both are no-ops in a tracker session: grantPass and returnToStudy check the mode)
   click: (action) => {
     if (action === 'outsidePass') serial(() => grantPass()).catch(() => {});
     else serial(async () => { const s = await getSession(); if (s?.active && (await returnToStudy(s, await getSettings()))) { await setSession(s); toNative({ type: 'focus' }); } }).catch(() => {});
@@ -595,7 +616,7 @@ async function onCamera(msg) {
   }
   const session = await getSession();
   const settings = await getSettings();
-  if (!session?.active || !settings.camera) return;
+  if (!session?.active || !settings.camera || !modeCaps(session).camera) return;
   if (msg.error) {
     // the watch window failing does not stop the offscreen one, and the other way round
     if (msg.fatal && source === 'offscreen' && !session.camFatal) await setSession({ ...session, camFatal: true }); // no retrying every minute
@@ -621,7 +642,7 @@ async function onCamera(msg) {
     const fx = punishmentFor(trigger, next, settings);
     if (outside) fx.effects = [];
     if (fx.effects.length || fx.notify || fx.screamer) next.punishments = (next.punishments || 0) + 1;
-    if (fx.notify && now - (next.lastNotifyAt || 0) >= 30_000) { notify(fx.say, settings); next.lastNotifyAt = now; }
+    if (fx.notify && now - (next.lastNotifyAt || 0) >= 30_000) { notify(fx.say, settings, next); next.lastNotifyAt = now; }
     if (fx.screamer) next.scareWindowId = await openScare(fx.screamer, fx.say, next.scareWindowId, settings, { inBrowser: !outside });
     const said = await speak(fx.say, { settings, tab, lastFile: next.lastFile, meta: metaFor(trigger, next), fx, silent: spoke || !maySpeak(fx.say, next.lastSpokenAt, now) });
     if (said) { Object.assign(next, said); spoke = true; }
@@ -643,17 +664,20 @@ const schedule = () => serial(evaluate).catch((e) => console.warn('evaluate', e)
 
 // ------------------------------------------------------------------ session control
 
-async function startSession(subject) {
+async function startSession(subject, mode) {
   const settings = await getSettings();
-  const session = newSession(Date.now(), subject);
+  mode = ['overseer', 'tracker'].includes(mode) ? mode : settings.mode;
+  const session = newSession(Date.now(), subject, mode);
+  const caps = modeCaps(session);
   // the camera first: its offscreen document replaces the audio-only one, which would cut the opening line short
-  if (settings.camera) await setCamera(true).catch(() => {});
-  const said = await speak('start', { settings, tab: await currentTab() });
+  if (caps.camera && settings.camera) await setCamera(true).catch(() => {});
+  // (a tracker session says nothing: speak() needs the stored session to know that, and it is not stored yet)
+  const said = caps.speak ? await speak('start', { settings, tab: await currentTab() }) : null;
   if (said) Object.assign(session, said);
   // his post window only hosts the camera now (its picture-in-picture keeps the camera running); without the camera
   // nothing of his stays on top of your apps: screamers come from the Mac helper, or meet you back in the browser
-  if ((settings.discipline === 'standard' || settings.discipline === 'harsh') && settings.camera) await openPost(session);
-  if (settings.camera) session.camStartAt = Date.now();
+  if ((settings.discipline === 'standard' || settings.discipline === 'harsh') && caps.camera && settings.camera) await openPost(session);
+  if (caps.camera && settings.camera) session.camStartAt = Date.now();
   if (settings.nativeOverlay) await startNative(session).catch(() => false);
   await setSession(session);
   await chrome.alarms.create(TICK, { periodInMinutes: 0.5 });
@@ -672,6 +696,9 @@ async function stopSession() {
   if (!session?.active) return null;
   const settings = await getSettings();
   const { session: done } = step(session, 'locked', Date.now(), settings); // count up to now
+  await mergeTrackDay(done.day || localDay(), done.dayApps).catch(() => {}); // today's part of the work/slack log
+  done.dayApps = {};
+  await setSession(done); // the flushed part is gone from the session before anything else can fail
   done.active = false;
   done.pendingReturn = null;
   await liftPenance(done); // before the end banner, which would not replace a lockout
@@ -680,16 +707,18 @@ async function stopSession() {
   disconnectNative(); // the helper hides his panel and quits
   await clearOverlays(done, { keepCurrent: true }); // the end banner replaces whatever is on the current tab
   const result = verdictOf(done);
-  await speak(result, {
-    settings, tab: await currentTab(),
-    meta: `${Math.round(done.focusMs / 60000)} min focused · ${Math.round(done.distractMs / 60000)} min distracted · ${done.strikes} strikes`,
-  });
+  if (modeCaps(done).speak) {
+    await speak(result, {
+      settings, tab: await currentTab(), force: true, // the session is no longer live, but its mode decides
+      meta: `${Math.round(done.focusMs / 60000)} min focused · ${Math.round(done.distractMs / 60000)} min distracted · ${done.strikes} strikes`,
+    });
+  }
   await setSession(done);
   await chrome.alarms.clear(TICK);
   await pushHistory({
     startedAt: done.startedAt, endedAt: Date.now(), subject: done.subject, focusMs: done.focusMs,
     distractMs: done.distractMs, strikes: done.strikes, answers: done.answers, punishments: done.punishments || 0,
-    awayMs: done.awayMs || 0, result,
+    awayMs: done.awayMs || 0, result, mode: done.mode || 'overseer', apps: summarize(done.apps, 20).rows,
   });
   badge(null);
   return done;
@@ -736,7 +765,7 @@ async function onAnswers(msg, tab) {
   if (!live && !settings.answersAlways) return;
   const n = change.results.slice(0, 50);
   const meta = n.length > 1 ? `${n.filter((r) => r === 'pass').length} right · ${n.filter((r) => r !== 'pass').length} not` : '';
-  const said = await speak(trigger, { settings, tab, lastFile: session?.lastFile || '', meta });
+  const said = await speak(trigger, { settings, tab, lastFile: session?.lastFile || '', meta }); // (silent in a tracker session)
   if (live) {
     const next = { ...session, answers: { ...(session.answers || { pass: 0, fail: 0, partial: 0 }) } };
     for (const r of n) next.answers[r] = (next.answers[r] || 0) + 1;
@@ -922,10 +951,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         let page = classify(tab?.url || '', tab?.title || '', settings, session?.subject || '', known.verdicts, known.learned);
         if (page === 'unknown' && tab?.url && (await pageSenseFor(tab.url))) page = 'study';
         const packs = (await loadPacks()).map((p) => ({ id: p.id, name: p.name, events: Object.keys(p.events) }));
-        return { session, settings, packs, page, host: hostOf(tab?.url || '') };
+        const history = (await chrome.storage.local.get('history')).history || [];
+        return {
+          session, settings, packs, page, host: hostOf(tab?.url || ''), today: todayView(await getTrackDays(), session, Date.now()),
+          last: history[0] || null, helper: nativeReady(),
+        };
       })());
       return true;
-    case 'start': reply(serial(() => startSession(String(msg.subject || ''))).then((session) => ({ session }))); return true;
+    case 'start': reply(serial(() => startSession(String(msg.subject || ''), msg.mode)).then((session) => ({ session }))); return true;
     case 'stop': reply(serial(stopSession).then((session) => ({ session }))); return true;
     case 'mark':
       reply(serial(async () => {
@@ -948,7 +981,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const settings = await getSettings();
         const s = msg.persona ? { ...settings, persona: msg.persona } : settings;
         if (msg.trigger === 'watch') { await checkIn(await currentTab(), s, {}); return {}; }
-        await speak(String(msg.trigger || 'start'), { settings: s, tab: await currentTab() });
+        await speak(String(msg.trigger || 'start'), { settings: s, tab: await currentTab(), force: true });
         return {};
       })());
       return true;
@@ -971,7 +1004,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (live?.active) { // the Mac helper turned on or off mid-session
           if (now.nativeOverlay) await startNative(live).catch(() => false); else disconnectNative();
         }
-        if (live?.active) { // the camera watch turned on or off mid-session (and a new try after a problem)
+        if (live?.active && modeCaps(live).camera) { // the camera watch turned on or off mid-session (and a new try after a problem)
           // while his watch window has the camera, a settings save must not start a second one in the background
           if (!now.camera || live.camSource !== 'post') await setCamera(now.camera).catch(() => {});
           await serial(async () => {
@@ -1037,6 +1070,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'openChat':
       reply(chrome.windows.create({ url: chrome.runtime.getURL('src/chat.html'), type: 'popup', width: 460, height: 700 }).then(() => ({})));
       return true;
+    case 'setMode': reply(serial(() => saveSettings({ mode: String(msg.mode || '') })).then(() => ({}))); return true;
     case 'setPersona': reply(serial(() => saveSettings({ persona: String(msg.persona || '') })).then(() => ({}))); return true;
     case 'silence': reply(stopAudio().then(() => ({}))); return true;
     default: return undefined;

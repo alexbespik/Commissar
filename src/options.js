@@ -46,6 +46,7 @@ async function load() {
   for (const k of LISTS) $(k).value = settings[k].join('\n');
   for (const k of NUMS) $(k).value = settings[k];
   for (const k of CHECKS) $(k).checked = settings[k];
+  $('mode').value = settings.mode;
   $('discipline').value = settings.discipline;
   $('penance').value = settings.penance;
   renderNotify();
@@ -142,6 +143,9 @@ async function doSave({ quiet = false, rerender = false } = {}) {
 
   const next = { ...settings };
   next.persona = $('persona').value;
+  // the popup also sets the mode: keep its newer choice unless the select here was changed
+  next.mode = $('mode').value !== settings.mode ? $('mode').value
+    : (await chrome.storage.local.get('settings')).settings?.mode || settings.mode;
   next.discipline = $('discipline').value;
   next.penance = $('penance').value;
   next.squad = [...$('squad').querySelectorAll('input:checked')].map((i) => i.value);

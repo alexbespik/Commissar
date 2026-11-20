@@ -6,6 +6,7 @@ export const SCHEMA_VERSION = 4;
 
 export const DEFAULTS = Object.freeze({
   schemaVersion: SCHEMA_VERSION,
+  mode: 'overseer',            // overseer: voice, punishments, camera | tracker: only records work and slack by app
   blocklist: [
     'reddit.com', 'x.com', 'twitter.com', 'tiktok.com', 'instagram.com', 'facebook.com', 'twitch.tv', 'netflix.com',
     'primevideo.com', 'disneyplus.com', 'hulu.com', '9gag.com', 'tumblr.com', 'pinterest.com', 'discord.com',
@@ -137,6 +138,7 @@ export function normalizeSettings(raw) {
     repeatSeconds: clampNum(r.repeatSeconds, 30, 3600, d.repeatSeconds),
     focusMinutes: clampNum(r.focusMinutes, 5, 180, d.focusMinutes),
     idleMinutes: clampNum(r.idleMinutes, 1, 60, d.idleMinutes),
+    mode: ['overseer', 'tracker'].includes(r.mode) ? r.mode : d.mode,
     persona: typeof r.persona === 'string' && (r.persona === 'squad' || ID_RE.test(r.persona)) ? r.persona : d.persona,
     squad: Array.isArray(r.squad) ? r.squad.filter((x) => typeof x === 'string' && ID_RE.test(x)) : [],
     rough,
@@ -349,8 +351,9 @@ export function classifyApp(app, settings = {}) {
 
 // ---------------------------------------------------------------- session
 
-export function newSession(now, subject = '') {
+export function newSession(now, subject = '', mode = 'overseer') {
   return {
+    mode, apps: {}, dayApps: {}, day: localDay(now), trackKey: '', trackKind: '',
     active: true, subject: String(subject || '').slice(0, 120), startedAt: now, lastAt: now,
     status: 'neutral', focusMs: 0, distractMs: 0, otherMs: 0, focusRunMs: 0,
     strikes: 0, distractedSince: 0, warned: false, lastDesertAt: 0, idleFired: false,
@@ -369,7 +372,7 @@ export function newSession(now, subject = '') {
  * Time since the last step counts under the previous status; a gap over 90 s counts as nothing.
  * Escalation compares timestamps, so it does not matter how often step() runs.
  */
-export function step(session, status, now, settings = {}, host = '') {
+export function step(session, status, now, settings = {}, host = '', track = null) {
   if (!session?.active) return { session, triggers: [] };
   const s = normalizeSettings(settings);
   const next = { ...session };
@@ -383,7 +386,14 @@ export function step(session, status, now, settings = {}, host = '') {
       if (s.punishOutsideBrowser) next.distractMs += dt;
     }
     else if (session.status !== 'locked') next.otherMs += dt;
+    // the slice goes to what the previous look saw (the key), to the session's list and today's list alike
+    if (session.trackKey && session.status !== 'locked') {
+      next.apps = accrue(session.apps, session.trackKey, session.trackKind, dt);
+      next.dayApps = accrue(session.dayApps, session.trackKey, session.trackKind, dt);
+    }
   }
+  next.trackKey = track?.key || '';
+  next.trackKind = track?.key ? track.kind || 'n' : '';
   next.lastAt = Math.max(now, session.lastAt || 0);
   const prev = session.status;
   next.status = status;
@@ -565,6 +575,7 @@ export function driftStatus(session, now, settings = {}) {
  * minutes), 'endGood' (distracted at most 15% of the judged time) or 'endBad'.
  */
 export function verdictOf(session, now = Date.now()) {
+  if (session?.mode === 'tracker') return 'tracked';
   if (!session || now - session.startedAt < 2 * 60_000) return 'stop';
   if (session.focusMs < 5 * 60_000) return 'abandon';
   return session.distractMs <= 0.15 * (session.focusMs + session.distractMs) ? 'endGood' : 'endBad';
@@ -735,4 +746,83 @@ export function pickClip(packs, settings, trigger, rng = Math.random, avoid = ''
 export function localDay(now = Date.now()) {
   const d = new Date(now);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// ---------------------------------------------------------------- modes and the work/slack log
+
+// overseer: he speaks, punishes, watches by camera, peeks in | tracker: nothing is forced, time is only recorded
+export const MODES = Object.freeze({
+  overseer: Object.freeze({ speak: true, punish: true, camera: true, checkIn: true }),
+  tracker: Object.freeze({ speak: false, punish: false, camera: false, checkIn: false }),
+});
+/** What a session may do; a session saved before modes existed has none and is an overseer one. */
+export const modeCaps = (session) => MODES[session?.mode === 'tracker' ? 'tracker' : 'overseer'];
+
+export const TRACK_MAX_KEYS = 150; // distinct sites and apps kept per session and per day; the rest is '(other)'
+export const TRACK_DAYS = 14;
+
+/** What the time is booked under: a site's host, or an app's name; '' when nothing counts (idle, locked). */
+export function trackKey({ idle = false, outside = false, app = null, url = '', incognito = false } = {}) {
+  if (idle) return '';
+  if (outside) return String(app?.name || '').trim().slice(0, 60) || 'Other apps';
+  if (incognito) return '(private window)';
+  if (/^file:/i.test(url)) return 'Local files';
+  return hostOf(url) || '(browser pages)';
+}
+
+/** 'w' work, 's' slack, 'n' neither (unjudged pages, other apps), from the session status and the front app's kind. */
+export function trackKind(status, appKind = '') {
+  if (status === 'study') return 'w';
+  if (status === 'distraction' || (status === 'away' && appKind === 'distraction')) return 's';
+  return 'n';
+}
+
+/** apps + dt ms under `key` as a new map {key: {w, s, n}}; past TRACK_MAX_KEYS new keys go to '(other)'. */
+export function accrue(apps, key, kind, dt) {
+  const out = { ...(apps || {}) };
+  const k = key in out || Object.keys(out).length < TRACK_MAX_KEYS ? key : '(other)';
+  const cur = out[k] || { w: 0, s: 0, n: 0 };
+  const f = kind === 'w' || kind === 's' ? kind : 'n';
+  out[k] = { ...cur, [f]: cur[f] + Math.round(dt) };
+  return out;
+}
+
+/** When the local day has changed: {session with a fresh day list, flush: the old day's {day, apps} or null}. */
+export function rollDay(session, now) {
+  const today = localDay(now);
+  if (!session || session.day === today) return { session, flush: null };
+  if (!session.day) return { session: { ...session, day: today, dayApps: {} }, flush: null };
+  const has = Object.keys(session.dayApps || {}).length > 0;
+  return { session: { ...session, day: today, dayApps: {} }, flush: has ? { day: session.day, apps: session.dayApps } : null };
+}
+
+/** Adds `apps` to days[day] ({apps, w, s, n}), keeps the newest `keep` days. Returns a new map. */
+export function mergeDay(days, day, apps, keep = TRACK_DAYS) {
+  const out = { ...(days || {}) };
+  let merged = { ...(out[day]?.apps || {}) };
+  for (const [k, v] of Object.entries(apps || {})) {
+    for (const f of ['w', 's', 'n']) if (v?.[f] > 0) merged = accrue(merged, k, f, v[f]);
+  }
+  const t = { w: 0, s: 0, n: 0 };
+  for (const v of Object.values(merged)) for (const f of ['w', 's', 'n']) t[f] += v[f];
+  out[day] = { apps: merged, ...t };
+  for (const d of Object.keys(out).sort().reverse().slice(keep)) delete out[d];
+  return out;
+}
+
+/** The biggest `limit` rows by total time, and the totals over every key. */
+export function summarize(apps, limit = Infinity) {
+  const rows = Object.entries(apps || {}).map(([key, v]) => ({ key, w: v.w || 0, s: v.s || 0, n: v.n || 0, total: (v.w || 0) + (v.s || 0) + (v.n || 0) }));
+  rows.sort((a, b) => b.total - a.total || (a.key < b.key ? -1 : 1));
+  const t = { w: 0, s: 0, n: 0 };
+  for (const r of rows) { t.w += r.w; t.s += r.s; t.n += r.n; }
+  return { rows: rows.slice(0, limit), ...t };
+}
+
+/** Today's time by app: what was saved for today plus the running session's part not yet saved. */
+export function todayView(trackDays, session, now, limit = 8) {
+  const today = localDay(now);
+  const saved = trackDays?.[today]?.apps || {};
+  const live = session?.day === today ? session.dayApps : {};
+  return summarize(mergeDay({ [today]: { apps: saved } }, today, live, 1)[today].apps, limit);
 }

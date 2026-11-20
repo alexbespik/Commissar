@@ -1,3 +1,4 @@
+import { summarize } from './core.js';
 const $ = (id) => document.getElementById(id);
 const send = (msg) => chrome.runtime.sendMessage(msg).catch((e) => ({ ok: false, error: String(e) }));
 let status = null;
@@ -13,6 +14,18 @@ function mmss(ms) {
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
+const min = (ms) => Math.round(ms / 60000);
+const totals = (t) => `${min(t.w)} min work · ${min(t.s)} min slack${t.n ? ` · ${min(t.n)} min other` : ''}`;
+
+/** "host — 12 min work · 3 min slack" rows (the biggest first), built with textContent only. */
+function fillApps(box, rows) {
+  box.replaceChildren(...rows.map((r) => {
+    const d = document.createElement('div');
+    d.textContent = `${r.key} — ${totals(r)}`;
+    return d;
+  }));
+}
+
 function render() {
   if (!status?.ok) return;
   const { session, settings, packs, page, host } = status;
@@ -21,7 +34,9 @@ function render() {
   $('running').hidden = !on;
   const st = $('state');
   st.className = `pill ${on ? (session.status === 'distraction' ? 'distraction' : session.status === 'study' ? 'study' : 'on') : ''}`;
-  st.textContent = on ? (session.status === 'neutral' ? 'on duty' : session.status) : 'off';
+  const tracker = on && session.mode === 'tracker';
+  st.textContent = on ? (tracker ? 'tracking' : session.status === 'neutral' ? 'on duty' : session.status) : 'off';
+  if (tracker) st.className = 'pill on';
 
   const sel = $('persona');
   if (!sel.options.length) {
@@ -29,6 +44,22 @@ function render() {
     if (packs.length > 1) sel.add(new Option('Squad (everyone takes turns)', 'squad'));
     sel.value = settings.persona;
     if (!sel.value && packs[0]) sel.value = packs[0].id;
+    $('mode').value = settings.mode;
+  }
+  // tracker: nothing to strike, pass or return to; just the time by site and app
+  for (const id of ['stats', 'discLine', 'returnRow', 'passRow', 'chat']) $(id).hidden = on && tracker;
+  $('trackBox').hidden = !tracker;
+  const t = status.today;
+  $('todayLine').hidden = !(t && (t.w || t.s || t.n));
+  if (t) $('todayLine').textContent = `Today: ${totals(t)}`;
+  const wantsApps = on ? tracker : $('mode').value === 'tracker';
+  // during a session only a live helper counts (ticked but not installed still books everything as "Other apps")
+  $('helperHint').hidden = !wantsApps || status.helper || (!status.session?.active && settings.nativeOverlay);
+  const last = status.last;
+  $('lastBox').hidden = on || !last?.apps?.length;
+  if (last?.apps?.length) {
+    $('lastHead').textContent = `Last session${last.subject ? ` (${last.subject})` : ''}:`;
+    fillApps($('lastApps'), last.apps.slice(0, 8));
   }
   if (on) {
     $('subjectLine').textContent = session.subject ? `Studying: ${session.subject}` : 'Session running';
@@ -38,6 +69,7 @@ function render() {
     const a = session.answers || {};
     $('answers').textContent = `${a.pass || 0}/${(a.fail || 0) + (a.partial || 0)}`;
     $('discLine').textContent = `Discipline: ${settings.discipline} · punishments ${session.punishments || 0} · away ${Math.round((session.awayMs || 0) / 60000)} min`;
+    if (tracker) fillApps($('runApps'), summarize(session.apps, 8).rows);
     renderPass(session);
     $('returnNow').disabled = !session.studyTab;
     $('returnNow').title = session.studyTab ? session.studyTab.url : 'No study tab yet: open your material first';
@@ -73,10 +105,13 @@ $('start').addEventListener('click', async () => {
   $('start').disabled = true;
   const persona = $('persona').value;
   await send({ type: 'setPersona', persona });
-  await send({ type: 'start', subject: $('subject').value.trim() });
+  const mode = $('mode').value;
+  await send({ type: 'setMode', mode }); // kept as the default for next time
+  await send({ type: 'start', subject: $('subject').value.trim(), mode });
   $('start').disabled = false;
   refresh();
 });
+$('mode').addEventListener('change', () => { if (status?.ok) status.settings.mode = $('mode').value; render(); });
 $('stop').addEventListener('click', async () => { $('stop').disabled = true; await send({ type: 'stop' }); $('stop').disabled = false; refresh(); });
 $('markStudy').addEventListener('click', async () => { await send({ type: 'mark', verdict: 'study' }); refresh(); });
 $('markDistraction').addEventListener('click', async () => { await send({ type: 'mark', verdict: 'distraction' }); refresh(); });

@@ -18,6 +18,7 @@ pages nothing else can judge; ElevenLabs is used only by you, once, to record vo
 - [Install](#install)
 - [Your first session](#your-first-session)
 - [What it reacts to](#what-it-reacts-to)
+- [Modes and the time log](#modes-and-the-time-log)
 - [Discipline and punishments](#discipline-and-punishments)
 - [What counts as studying](#what-counts-as-studying)
 - [Right and wrong answers](#right-and-wrong-answers)
@@ -88,6 +89,19 @@ early.
 
 Every number above is a setting (except the check-ins and the outside-resources pass). Leaving the browser for a PDF reader or Anki is never counted as distracted time
 unless you turn that on, but from standard up the `away` stages do pull the browser back in front (see below).
+
+## Modes and the time log
+
+Pick the mode in the popup (or Settings → Mode); it applies from the next session.
+
+- **Overseer** (default): the voice, the punishments, the camera watch and the random check-ins, as described below.
+- **Tracker**: only records. No voice, no banners, no burned tabs, no pulling you back, no camera, no pass button.
+
+Both modes log how long you spend on each site (by host) and in each app, split into work, slack and other. App
+names need the Mac helper (Settings → Mac helper); without it, time outside the browser is booked as "Other apps".
+Private windows are booked as "(private window)" and local files as "Local files". The popup shows today's totals
+and the apps of your last session. The log (hosts and app names per day, the last 14 days) is kept in the browser's
+extension storage on this computer only. If Gemini is on, it still classifies pages in Tracker mode.
 
 ## Discipline and punishments
 
