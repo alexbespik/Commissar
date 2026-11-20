@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="fonts/fonts.css">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Commissar Settings</title>
   <link rel="stylesheet" href="ui.css">
@@ -16,7 +17,7 @@
     .chips button { font-size: 12px; padding: 4px 9px; }
     table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
     th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-    td code { font: 11px ui-monospace, Menlo, monospace; word-break: break-all; }
+    td code { font: 11px 'Commissar Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace; word-break: break-all; }
     .kind-correct { color: var(--green); } .kind-incorrect { color: #e57368; } .kind-partial { color: var(--gold); }
     #saveBar { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0; border-top: 1px solid var(--line); margin-top: 24px; display: flex; gap: 10px; align-items: center; }
     .rule { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; margin: 6px 0; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
@@ -52,25 +53,79 @@
   </section>
 
   <section>
+    <h2>Mode</h2>
+    <label for="mode">What a session does</label>
+    <select id="mode">
+      <option value="overseer">Overseer: voice, punishments and the camera watch</option>
+      <option value="tracker">Tracker: silently records work and slack time, nothing is forced</option>
+    </select>
+    <p class="muted small">Either way the extension records how long you spend on each site and in each app (apps need the Mac helper). Tracker only records: no voice, no burned tabs, no pulling you back, no camera. The choice in the popup applies from the next session. The log (site hosts and app names per day, the last 14 days) stays on this computer; Gemini, if you enabled it, still classifies pages.</p>
+  </section>
+
+  <section>
     <h2>Discipline</h2>
-    <p class="muted small">How the persona punishes drifting. Nothing ever closes or changes your tabs: the strongest measure is switching you back to the tab you were studying on.</p>
+    <p class="muted small">How the persona punishes drifting. Nothing is ever closed: a burned tab becomes the condemned page (Back restores it), and you are switched back to a tab you were studying on.</p>
     <div class="grid3">
       <div><label for="discipline">Level</label>
         <select id="discipline">
           <option value="off">Off: voice only</option>
-          <option value="lenient">Lenient: red flash</option>
-          <option value="standard">Standard: shake, grey-out, return to your study tab</option>
-          <option value="harsh">Harsh: + lockout sooner, pulls the browser forward</option>
+          <option value="lenient">Lenient: red flash and grey-out, no burning</option>
+          <option value="standard">Standard: burns the tab, sends you back, writing punishment from the 2nd desertion, pulls the browser forward</option>
+          <option value="harsh">Harsh: writing punishment from the 1st desertion, at least 5 lines</option>
         </select></div>
-      <div><label for="countdownSeconds">Return to study tab after (s)</label><input id="countdownSeconds" type="number" min="5" max="25"></div>
-      <div><label for="awaySeconds">Browser out of focus → warning after (s)</label><input id="awaySeconds" type="number" min="30" max="1800"></div>
-      <div><label for="lockoutStrikes">Lockout from strike</label><input id="lockoutStrikes" type="number" min="2" max="10"></div>
-      <div><label for="lockoutSeconds">Lockout lifts after (s, max 60)</label><input id="lockoutSeconds" type="number" min="10" max="60"></div>
+      <div><label for="countdownSeconds">Burn, then back to study tab after (s)</label><input id="countdownSeconds" type="number" min="3" max="25"></div>
+      <div><label for="awaySeconds">Out of the browser → pulled back after (s; without an outside-resources pass)</label><input id="awaySeconds" type="number" min="1" max="1800"></div>
+      <div><label for="lockoutDesertions">Writing punishment from desertion no.</label><input id="lockoutDesertions" type="number" min="1" max="10"></div>
+      <div><label for="penanceTimes">Write the penance this many times</label><input id="penanceTimes" type="number" min="1" max="10"></div>
       <div><label for="penance">Penance line to type</label><input id="penance" type="text" maxlength="80"></div>
     </div>
-    <label class="check"><input id="effects" type="checkbox"> On-screen effects (flash, shake, grey-out, lockout) on the distracting page (needs access to sites)</label>
+    <label class="check"><input id="condemnTabs" type="checkbox"> Burn the tab: after the countdown (or the written penance) the distracting page is replaced by a "condemned" page (Back restores it; nothing is closed)</label>
+    <label class="check"><input id="screamers" type="checkbox"> Screamers when you stay out of the browser: after 2× the warning time he points at you, after 3× he fires. They play in his always-on-top watch window, and meet you again when you come back.</label>
+    <label class="check"><input id="effects" type="checkbox"> On-screen effects (flash, shake, grey-out, burning, writing punishment) on the distracting page (needs access to sites)</label>
     <div class="row" style="margin-top:6px"><button id="grantNotify" class="shrink">Allow system notifications</button><span id="notifyState" class="small muted"></span></div>
-    <p class="muted small">Notifications reach you when another app is in front; macOS Focus or notification settings can hide them. Bringing the browser forward is best effort.</p>
+    <p class="muted small">Notifications reach you when another app is in front; macOS Focus or notification settings can hide them. Bringing the browser forward is best effort: the system may refuse to let it jump in front of another app.</p>
+  </section>
+
+  <section>
+    <h2>Camera watch (on this computer only)</h2>
+    <p class="muted small">During a session the camera is checked about once a second, right here on your computer, for a phone in your hands and for you at the desk. No picture is ever saved or sent anywhere: only "phone yes/no, person yes/no" reaches the extension. The camera light stays on while a session runs. A phone held below the desk, out of the camera's view, cannot be seen.</p>
+    <label class="check"><input id="camera" type="checkbox"> Watch through the camera during sessions</label>
+    <div class="grid3">
+      <div><label for="phoneSeconds">Phone in view → strike after (s)</label><input id="phoneSeconds" type="number" min="1" max="60"></div>
+      <div><label for="absentSeconds">Empty chair → warning after (s)</label><input id="absentSeconds" type="number" min="20" max="1800"></div>
+    </div>
+    <label class="check"><input id="gaze" type="checkbox"> Watch which way I look (away from the screen; head down with my hands off the keys)</label>
+    <label class="check"><input id="copybook" type="checkbox"> Copybook mode: looking down and to the right (a copybook beside the keyboard) counts as working</label>
+    <div class="grid3">
+      <div><label for="lookAwaySeconds">Looking away → warning after (s; strike at 3×)</label><input id="lookAwaySeconds" type="number" min="5" max="600"></div>
+      <div><label for="lookDownSeconds">Head down, no typing → warning after (s; strike at 3×)</label><input id="lookDownSeconds" type="number" min="10" max="900"></div>
+    </div>
+    <p class="muted small">Looking down while you type counts as working. Looking down with the keyboard and mouse untouched looks like a phone in your lap: writing on paper, take an <b>I need outside resources</b> pass first, and none of this counts. A second monitor to the side reads as "away": turn this off then.</p>
+    <p class="muted small"><b>Keep the camera allowed:</b> during a session the camera runs in his watch window when you post him (it can ask there), or else in the background, which works only when the camera is allowed for good. If Brave asks how long to remember the camera, pick the longest.</p>
+    <p class="muted small">A phone in view: a strike, the red flash and he points at you. Still on it 30 s later: he fires, and it counts as a desertion (the next one brings the writing punishment). No keyboard or mouse, but you are at the desk and off your phone: you are reading, not idle.</p>
+    <div class="row" style="margin-top:6px">
+      <button id="camAllow" class="shrink">Allow the camera</button>
+      <button id="camTest" class="shrink">Test it</button>
+      <span id="camState" class="small muted" aria-live="polite"></span>
+    </div>
+    <div id="camBox" hidden style="position:relative;max-width:480px;margin-top:10px">
+      <video id="camVideo" muted playsinline style="width:100%;display:block;border-radius:6px;transform:scaleX(-1)"></video>
+      <canvas id="camDraw" style="position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)"></canvas>
+    </div>
+  </section>
+
+  <section>
+    <h2>Mac helper: over fullscreen apps, and which app you are in</h2>
+    <p class="muted small">A browser cannot show anything over a fullscreen app, nor see which app you switched to. A small helper app on your Mac can: it shows the screamers on top of every app and every Space (nothing of his stays on screen in between), and tells the extension the name of the app in front (nothing else: no window titles, no screen contents). Then a study app (a PDF reader, Anki, your notes) counts as studying, and a distraction app (Telegram, Discord, a game) brings the out-of-browser punishments after a few seconds.</p>
+    <p class="small">Install it once, in a terminal, in the extension folder:</p>
+    <pre id="overlayCmd" class="small" style="white-space:pre-wrap;user-select:all;background:var(--bg2,#1e1b16);padding:8px;border-radius:5px"></pre>
+    <label class="check"><input id="nativeOverlay" type="checkbox"> Use the Mac helper during sessions</label>
+    <div class="row"><button id="nativeTest" type="button">Test the helper</button> <span id="nativeState" class="small muted" aria-live="polite"></span></div>
+    <div class="grid2">
+      <div><label for="appStudy">Study apps (name or bundle id, one per line)</label><textarea id="appStudy"></textarea></div>
+      <div><label for="appDistraction">Distraction apps</label><textarea id="appDistraction"></textarea></div>
+      <div><label for="appDistractSeconds">A distraction app in front → punished after (s)</label><input id="appDistractSeconds" type="number" min="1" max="120"></div>
+    </div>
   </section>
 
   <section>
@@ -82,7 +137,7 @@
       <div><label for="studyKeywords">Study words in a title or address</label><textarea id="studyKeywords"></textarea></div>
     </div>
     <label class="check"><input id="strictUnknown" type="checkbox"> Strict: any page not judged as study counts as distraction</label>
-    <label class="check"><input id="punishOutsideBrowser" type="checkbox"> Leaving the browser counts as distraction (off: you may be in a PDF reader or Anki)</label>
+    <label class="check"><input id="punishOutsideBrowser" type="checkbox"> Time out of the browser counts as distracted time in your session record (off: you may be in a PDF reader or Anki). The away warnings and screamers come either way.</label>
     <label class="check"><input id="readPages" type="checkbox"> Read each page's own text locally to spot study material (needs access to sites; nothing is sent anywhere)</label>
     <div class="grid3">
       <div><label for="graceSeconds">Grace before a warning (s)</label><input id="graceSeconds" type="number" min="0" max="60"></div>
@@ -131,8 +186,30 @@
       <div><label for="gCap">Daily cap</label><input id="gCap" type="number" min="0" max="1000"></div>
       <div><label for="gAfter">Ask after staying (s)</label><input id="gAfter" type="number" min="5" max="600"></div>
     </div>
+    <div class="grid2">
+      <div><label for="gChatCap">Chat and quiz messages per day</label><input id="gChatCap" type="number" min="0" max="1000"></div>
+    </div>
+    <label class="check"><input id="gReadAloud" type="checkbox"> Read the Commissar's chat replies aloud (browser voice)</label>
     <label class="check"><input id="gSnippet" type="checkbox"> Also send the start of the page text (better answers, more private data)</label>
     <div id="gUsage" class="small muted"></div>
+  </section>
+
+  <section>
+    <h2>Sites the AI learned</h2>
+    <p class="muted small">With Gemini on and a key saved, every new site you open is sorted once (after 4 s on it): <b>study</b>, <b>distraction</b> or <b>neutral</b>, with a short reason. It is asked about the site, not each page, so a site costs one call ever. Your own lists above always win, and the sites already on them are never asked about. Change a verdict here and it is kept as yours. Tick "send the start of the page text" above to let it read the page too.</p>
+    <label class="check"><input id="gLearn" type="checkbox"> Sort every new site I open</label>
+    <div class="grid2">
+      <div><label for="gLearnCap">New sites sorted per day (at most)</label><input id="gLearnCap" type="number" min="0" max="1000"></div>
+      <div><label for="learnFilter">Find a site</label><input id="learnFilter" type="search" placeholder="e.g. youtube"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="learnSave" class="shrink">Save as file</button>
+      <button id="learnLoad" class="shrink">Load a file</button>
+      <input id="learnFile" type="file" accept=".json,application/json" hidden>
+      <button id="learnClear" class="shrink">Forget all</button>
+      <span id="learnUsage" class="small muted"></span>
+    </div>
+    <table id="learned" class="small" style="width:100%;margin-top:10px;border-collapse:collapse"></table>
   </section>
 
   <section>
@@ -141,7 +218,7 @@
     <div class="row" style="margin-top:8px"><button id="grantAll" class="shrink">Allow on all sites</button><button id="revokeAll" class="shrink">Remove site access</button></div>
   </section>
 
-  <div id="saveBar"><button id="save" class="primary">Save settings</button><span id="saved" class="small muted"></span></div>
+  <div id="saveBar"><button id="save" class="primary" title="Changes save by themselves; this saves and redraws the page">Save now</button><span id="saved" class="small muted"></span></div>
 </main>
 <script src="answers.js"></script>
 <script type="module" src="options.js"></script>

@@ -1,7 +1,7 @@
 // Everything the service worker keeps lives in chrome.storage.local (the worker can be stopped at any moment, and
 // storage.session is wiped when the browser restarts). serial() runs read-modify-write steps one at a time, so two
 // browser events arriving together cannot overwrite each other's changes.
-import { normalizeSettings } from './core.js';
+import { normalizeSettings, mergeDay } from './core.js';
 
 let chain = Promise.resolve();
 /** Runs `fn` after every earlier serial() call has finished; resolves to its result. */
@@ -77,4 +77,16 @@ export async function pushHistory(entry) {
   const { history = [] } = await chrome.storage.local.get('history');
   history.unshift(entry);
   await chrome.storage.local.set({ history: history.slice(0, 50) });
+}
+
+// the work/slack log by day: {'YYYY-MM-DD': {apps: {host or app name: {w, s, n} ms}, w, s, n}}, the last 14 days.
+// Written on a day change and when a session ends (never per tick), and only ever on this computer.
+export async function getTrackDays() {
+  const { trackDays } = await chrome.storage.local.get('trackDays');
+  return trackDays && typeof trackDays === 'object' ? trackDays : {};
+}
+
+export async function mergeTrackDay(day, apps) {
+  if (!day || !Object.keys(apps || {}).length) return;
+  await chrome.storage.local.set({ trackDays: mergeDay(await getTrackDays(), day, apps) });
 }

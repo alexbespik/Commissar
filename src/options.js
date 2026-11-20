@@ -8,11 +8,11 @@ const ALL = { origins: ['<all_urls>'] };
 let settings = normalizeSettings({});
 let packs = [];
 
-const LISTS = ['allowlist', 'blocklist', 'ambiguous', 'studyKeywords'];
+const LISTS = ['allowlist', 'blocklist', 'ambiguous', 'studyKeywords', 'appStudy', 'appDistraction'];
 const NUMS = ['graceSeconds', 'desertSeconds', 'repeatSeconds', 'focusMinutes', 'idleMinutes', 'driftMinutes',
-  'countdownSeconds', 'awaySeconds', 'lockoutStrikes', 'lockoutSeconds'];
-const CHECKS = ['strictUnknown', 'punishOutsideBrowser', 'readPages', 'ttsFallback', 'overlay', 'answersAlways', 'autoDetect', 'effects'];
-const PREVIEW = ['start', 'distracted', 'deserted', 'lockout', 'back', 'away', 'returned', 'focusBlock', 'idle', 'quizPass', 'quizFail', 'allDone', 'endGood', 'endBad', 'abandon'];
+  'countdownSeconds', 'awaySeconds', 'lockoutDesertions', 'penanceTimes', 'phoneSeconds', 'absentSeconds', 'lookAwaySeconds', 'lookDownSeconds', 'appDistractSeconds'];
+const CHECKS = ['strictUnknown', 'punishOutsideBrowser', 'readPages', 'ttsFallback', 'overlay', 'answersAlways', 'autoDetect', 'effects', 'screamers', 'condemnTabs', 'camera', 'gaze', 'copybook', 'nativeOverlay'];
+const PREVIEW = ['watch', 'start', 'distracted', 'deserted', 'lockout', 'back', 'away', 'awayPoint', 'awayShoot', 'returned', 'focusBlock', 'idle', 'quizPass', 'quizFail', 'allDone', 'endGood', 'endBad', 'abandon'];
 
 function el(tag, props = {}, ...kids) {
   const e = Object.assign(document.createElement(tag), props);
@@ -46,6 +46,7 @@ async function load() {
   for (const k of LISTS) $(k).value = settings[k].join('\n');
   for (const k of NUMS) $(k).value = settings[k];
   for (const k of CHECKS) $(k).checked = settings[k];
+  $('mode').value = settings.mode;
   $('discipline').value = settings.discipline;
   $('penance').value = settings.penance;
   renderNotify();
@@ -55,6 +56,13 @@ async function load() {
   $('gCap').value = settings.gemini.dailyCap;
   $('gAfter').value = settings.gemini.afterSeconds;
   $('gSnippet').checked = settings.gemini.sendSnippet;
+  $('gChatCap').value = settings.gemini.chatCap;
+  $('gReadAloud').checked = settings.gemini.readAloud;
+  $('gLearn').checked = settings.gemini.learnSites;
+  $('gLearnCap').value = settings.gemini.learnCap;
+  renderLearned();
+  renderCamera();
+  renderNative();
   renderRules();
   renderUsage();
   renderPerm();
@@ -106,19 +114,38 @@ async function store() {
   await send({ type: 'settingsChanged' });
 }
 
-$('save').addEventListener('click', async () => {
-  // permission prompts must start straight from the click
-  // ask for all sites only when you just ticked something that needs it (the defaults alone never prompt)
+/**
+ * Saves everything on the page (the Gemini key too). Runs by itself a moment after any change (see autosave below),
+ * and from the Save button. `quiet`: no permission prompts and no re-render (closing the page).
+ */
+let saving = Promise.resolve();
+function saveAll(opts = {}) {
+  saving = saving.then(() => doSave(opts), () => doSave(opts));
+  return saving;
+}
+
+async function doSave({ quiet = false, rerender = false } = {}) {
+  // permission prompts start from your own change or click (the defaults alone never prompt)
+  // ask for all sites only when you just ticked something that needs it
   const newlyTicked = ['overlay', 'readPages', 'autoDetect', 'effects'].some((k) => $(k).checked && !settings[k]);
-  const wantAll = newlyTicked && !(await chrome.permissions.contains(ALL));
+  const wantAll = !quiet && newlyTicked && !(await chrome.permissions.contains(ALL));
   const wantGemini = $('gEnabled').checked;
+  if (!quiet && $('camera').checked && !settings.camera && !(await allowCamera())) $('camera').checked = false;
+  // the Mac helper needs the native messaging permission (asked once, from your tick)
+  if ($('nativeOverlay').checked && !(await chrome.permissions.contains({ permissions: ['nativeMessaging'] }))) {
+    const ok = !quiet && await chrome.permissions.request({ permissions: ['nativeMessaging'] }).catch(() => false);
+    if (!ok) $('nativeOverlay').checked = false;
+  }
   const asks = [];
   if (wantAll) asks.push(...ALL.origins);
-  if (wantGemini) asks.push(GEMINI_ORIGIN);
+  if (wantGemini && !quiet && !(await chrome.permissions.contains({ origins: [GEMINI_ORIGIN] }))) asks.push(GEMINI_ORIGIN);
   if (asks.length) await chrome.permissions.request({ origins: asks }).catch(() => false);
 
   const next = { ...settings };
   next.persona = $('persona').value;
+  // the popup also sets the mode: keep its newer choice unless the select here was changed
+  next.mode = $('mode').value !== settings.mode ? $('mode').value
+    : (await chrome.storage.local.get('settings')).settings?.mode || settings.mode;
   next.discipline = $('discipline').value;
   next.penance = $('penance').value;
   next.squad = [...$('squad').querySelectorAll('input:checked')].map((i) => i.value);
@@ -130,13 +157,32 @@ $('save').addEventListener('click', async () => {
   next.gemini = {
     enabled: wantGemini, model: $('gModel').value.trim() || DEFAULTS.gemini.model, dailyCap: Number($('gCap').value),
     afterSeconds: Number($('gAfter').value), sendSnippet: $('gSnippet').checked,
+    chatCap: Number($('gChatCap').value), readAloud: $('gReadAloud').checked,
+    learnSites: $('gLearn').checked, learnCap: Number($('gLearnCap').value),
   };
   settings = next;
   await chrome.storage.local.set({ geminiKey: $('gKey').value.trim() });
   await store();
-  await load();
-  $('saved').textContent = `Saved ${new Date().toLocaleTimeString()}`;
-});
+  if (rerender) await load(); // not while you type: it would reset the field you are in
+  $('saved').textContent = `Saved automatically ${new Date().toLocaleTimeString()}`;
+}
+
+$('save').addEventListener('click', () => saveAll({ rerender: true }));
+
+// autosave: every setting is kept a moment after you change it (typing: after a short pause). Not the controls that
+// are not settings: the learned-sites search and file, the teach-a-site files and table.
+const NOT_SETTINGS = (el) => !el?.id || ['learnFilter', 'learnFile', 'teachFiles'].includes(el.id) || el.closest('#teach, #learned, #camBox');
+let autoTimer = 0;
+const autosave = (e, wait) => {
+  if (NOT_SETTINGS(e.target) && !e.target?.closest?.('#squad')) return;
+  $('saved').textContent = 'Saving…';
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(() => { autoTimer = 0; saveAll(); }, wait);
+};
+document.addEventListener('change', (e) => autosave(e, 150));
+document.addEventListener('input', (e) => { if (e.target.matches?.('input[type=text], input[type=password], input[type=number], input[type=search], textarea')) autosave(e, 900); });
+// leaving the page with a change still waiting: keep it (no prompts possible now)
+addEventListener('pagehide', () => { if (autoTimer) { clearTimeout(autoTimer); saveAll({ quiet: true }); } });
 
 $('grantNotify').addEventListener('click', async () => {
   await chrome.permissions.request({ permissions: ['notifications'] }).catch(() => false);
@@ -145,6 +191,173 @@ $('grantNotify').addEventListener('click', async () => {
 $('persona').addEventListener('change', () => { $('squadBox').hidden = $('persona').value !== 'squad'; });
 $('grantAll').addEventListener('click', async () => { await chrome.permissions.request(ALL).catch(() => false); await send({ type: 'settingsChanged' }); renderPerm(); });
 $('revokeAll').addEventListener('click', async () => { await chrome.permissions.remove(ALL).catch(() => false); await send({ type: 'settingsChanged' }); renderPerm(); });
+
+// ------------------------------------------------------------------ Mac helper
+
+async function renderNative() {
+  $('overlayCmd').textContent = `node tools/install-overlay.mjs ${chrome.runtime.id}`;
+  const { nativeState } = await chrome.storage.local.get('nativeState');
+  const st = nativeState || {};
+  $('nativeState').textContent = st.connected ? `Connected.${st.app ? ` App in front: ${st.app}.` : ''}`
+    : st.error ? `Not connected: ${st.error}` : 'Not connected (it connects when a session starts).';
+}
+chrome.storage.onChanged.addListener((c, area) => { if (area === 'local' && c.nativeState) renderNative(); });
+$('nativeTest').addEventListener('click', async () => {
+  if (!(await chrome.permissions.contains({ permissions: ['nativeMessaging'] }))) {
+    const ok = await chrome.permissions.request({ permissions: ['nativeMessaging'] }).catch(() => false);
+    if (!ok) { $('nativeState').textContent = 'Not allowed: the browser needs the "talk to the helper" permission for this.'; return; }
+  }
+  $('nativeState').textContent = 'Starting the helper…';
+  const r = await chrome.runtime.sendMessage({ type: 'testNative' }).catch(() => null);
+  if (r?.ok) $('nativeState').textContent = 'Connected: he should have appeared over your screen for 3 seconds.';
+  else renderNative(); // shows why it could not connect
+});
+
+// ------------------------------------------------------------------ camera watch
+
+/** Asks for the camera once, here (the offscreen watcher cannot ask). Resolves true when allowed. */
+async function allowCamera() {
+  try {
+    const st = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    st.getTracks().forEach((t) => t.stop());
+    return true;
+  } catch (e) {
+    $('camState').textContent = e?.name === 'NotAllowedError' ? 'Camera blocked. Allow it in the address bar (camera icon) or the browser settings for this extension.'
+      : e?.name === 'NotFoundError' ? 'No camera found.' : `Camera: ${String(e?.message || e).slice(0, 120)}`;
+    return false;
+  }
+}
+
+async function renderCamera() {
+  const perm = await navigator.permissions?.query({ name: 'camera' }).catch(() => null);
+  const { cameraState } = await chrome.storage.local.get('cameraState');
+  const seen = cameraState && Date.now() - cameraState.at < 60_000
+    ? ` Last look (${cameraState.source === 'post' ? 'watch window' : 'background'}): ${cameraState.error ? cameraState.error : `phone ${cameraState.phone ? 'yes' : 'no'}, person ${cameraState.person ? 'yes' : 'no'}${cameraState.look ? `, looking ${cameraState.look}` : ''}`}.` : (cameraState?.error ? ` Last problem: ${cameraState.error}` : '');
+  $('camState').textContent = `Camera ${perm?.state === 'granted' ? 'allowed' : perm?.state === 'denied' ? 'blocked' : 'not allowed yet'}.${seen}`;
+}
+
+$('camAllow').addEventListener('click', async () => { if (await allowCamera()) renderCamera(); });
+
+let camTest = null;
+$('camTest').addEventListener('click', async () => {
+  if (camTest) { camTest.stop(); return; }
+  if (!(await allowCamera())) return;
+  $('camState').textContent = 'Loading the detector…';
+  let detector;
+  try {
+    const { createDetector, createFace, lookAt, gazeTracker } = await import('./vision.js');
+    detector = await createDetector();
+    const face = await createFace().catch(() => null);
+    const gaze = gazeTracker();
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    const v = $('camVideo');
+    v.srcObject = stream;
+    await v.play();
+    $('camBox').hidden = false;
+    $('camTest').textContent = 'Stop the test';
+    const c = $('camDraw');
+    const g = c.getContext('2d');
+    let timer = 0;
+    camTest = {
+      stop() {
+        clearTimeout(timer);
+        stream.getTracks().forEach((t) => t.stop());
+        v.srcObject = null;
+        $('camBox').hidden = true;
+        $('camTest').textContent = 'Test it';
+        camTest = null;
+        renderCamera();
+      },
+    };
+    const tick = () => {
+      if (!camTest) return;
+      let f;
+      try { f = lookAt(detector, v); } catch (e) { const t = camTest; t.stop(); $('camState').textContent = `Detector problem: ${String(e?.message || e).slice(0, 160)}`; return; }
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      g.lineWidth = 3;
+      g.font = "16px 'Commissar Mono', monospace";
+      for (const b of f.boxes) {
+        g.strokeStyle = b.label === 'cell phone' ? '#ff3b2f' : '#c9a227';
+        g.strokeRect(b.x, b.y, b.w, b.h);
+        g.save(); g.scale(-1, 1); g.fillStyle = g.strokeStyle; // the canvas is mirrored: unmirror the text
+        g.fillText(`${b.label === 'cell phone' ? 'PHONE' : 'you'} ${Math.round(b.score * 100)}%`, -(b.x + b.w) + 4, b.y + 18);
+        g.restore();
+      }
+      const look = face && f.person ? gaze(face.detect(v)) : null;
+      const where = look ? ` Looking: ${look.look.toUpperCase()} (turned ${look.turn >= 0 ? '+' : ''}${look.turn}, tilted ${look.tilt >= 0 ? '+' : ''}${look.tilt} from your usual${look.learned ? '' : '; still learning your usual direction'}).` : '';
+      $('camState').textContent = `Sees: ${f.phone ? 'a PHONE' : 'no phone'}, ${f.person ? 'you' : 'nobody'}.${where} (Test only: nothing is counted.)`;
+      timer = setTimeout(tick, 500);
+    };
+    tick();
+  } catch (e) {
+    $('camState').textContent = String(e?.message || e).slice(0, 200);
+    camTest?.stop();
+  }
+});
+
+// ------------------------------------------------------------------ sites the AI learned
+
+let learned = {};
+const VERDICTS = ['study', 'distraction', 'neutral'];
+
+async function renderLearned() {
+  const r = await send({ type: 'learned' });
+  learned = r?.sites || {};
+  const u = r?.usage;
+  $('learnUsage').textContent = `${Object.keys(learned).length} sites known.`
+    + (u ? ` Sorted on ${u.day}: ${u.count || 0}.` : '')
+    + (u?.lastError ? ` Last problem: ${u.lastError}` : '');
+  drawLearned();
+}
+
+function drawLearned() {
+  const q = $('learnFilter').value.trim().toLowerCase();
+  const rows = Object.entries(learned).filter(([h]) => !q || h.includes(q)).sort((a, b) => b[1].at - a[1].at).slice(0, 400);
+  const head = el('tr', {}, ...['Site', 'Verdict', 'Why', 'When'].map((t) => el('th', { textContent: t, style: 'text-align:left;padding:4px 6px' })));
+  $('learned').replaceChildren(head, ...rows.map(([host, e]) => {
+    const sel = el('select', { 'aria-label': `Verdict for ${host}` }, ...VERDICTS.map((v) => new Option(v, v)), new Option('forget', ''));
+    sel.value = e.v;
+    sel.addEventListener('change', async () => {
+      const r = await send({ type: 'setLearned', sites: { [host]: sel.value ? { v: sel.value, why: 'set by you' } : null } });
+      learned = r?.sites || learned;
+      drawLearned();
+    });
+    return el('tr', {},
+      el('td', { textContent: host, style: 'padding:3px 6px;word-break:break-all' }),
+      el('td', { style: 'padding:3px 6px' }, sel),
+      el('td', { textContent: `${e.why || ''}${e.src === 'hand' ? ' (yours)' : ''}`, style: 'padding:3px 6px' }),
+      el('td', { textContent: new Date(e.at).toLocaleDateString(), style: 'padding:3px 6px;white-space:nowrap' }));
+  }));
+  if (!rows.length) $('learned').append(el('tr', {}, el('td', { colSpan: 4, className: 'muted', textContent: q ? 'No site matches.' : 'Nothing learned yet.', style: 'padding:6px' })));
+}
+
+$('learnFilter').addEventListener('input', drawLearned);
+$('learnSave').addEventListener('click', () => {
+  const file = { app: 'Commissar Study Watch', kind: 'learned-sites', saved: new Date().toISOString(), sites: learned };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
+  el('a', { href: url, download: `commissar-learned-sites-${new Date().toISOString().slice(0, 10)}.json` }).click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+});
+$('learnLoad').addEventListener('click', () => $('learnFile').click());
+$('learnFile').addEventListener('change', async (e) => {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f || f.size > 2 * 1024 * 1024) return;
+  try {
+    const data = JSON.parse(await readFile(f));
+    const sites = data?.sites && typeof data.sites === 'object' ? data.sites : data;
+    const r = await send({ type: 'setLearned', sites, replace: false, keepSource: true });
+    learned = r?.sites || learned;
+    drawLearned();
+    $('learnUsage').textContent = `Loaded. ${Object.keys(learned).length} sites known.`;
+  } catch { $('learnUsage').textContent = 'That file could not be read.'; }
+});
+$('learnClear').addEventListener('click', async () => {
+  if (!confirm('Forget every site the AI sorted (and the ones you set here)? Save a file first if you want to keep them.')) return;
+  const r = await send({ type: 'setLearned', sites: {}, replace: true });
+  learned = r?.sites || {};
+  drawLearned();
+});
 
 // ------------------------------------------------------------------ teach a site
 

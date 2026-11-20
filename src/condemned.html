@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Condemned</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #120d0a; color: #eee6d3; overflow: hidden; font: 15px/1.5 'Commissar Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+    main { position: relative; z-index: 1; max-width: 560px; margin: 14vh auto 0; padding: 0 16px; text-align: center; }
+    h1 { font: 700 clamp(40px, 9vw, 72px)/1 'Commissar Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace; letter-spacing: .14em; color: #ff4a2e; margin: 0 0 12px;
+         text-shadow: 0 0 24px rgba(255, 74, 46, .55), 0 2px 0 #3a0b06; }
+    .host { color: #ffb36b; font-weight: 600; word-break: break-all; }
+    .muted { color: #a39a86; font: 13px/1.4 'Commissar Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+    button { margin: 18px 6px 0; border-radius: 6px; padding: 10px 18px; font: 600 15px 'Commissar Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace; cursor: pointer; }
+    .go { background: #c0392b; color: #fff; border: 0; }
+    .undo { background: transparent; color: #a39a86; border: 1px solid #3a342a; }
+    button:focus-visible { outline: 2px solid #c9a227; outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <canvas id="ash"></canvas>
+  <main>
+    <h1>CONDEMNED</h1>
+    <p><span class="host" id="host"></span> burned for desertion.</p>
+    <p class="muted">The Commissar has taken this tab. Go back there again this session and it burns sooner.</p>
+    <button class="go" id="back">Back to my post</button>
+    <button class="undo" id="restore">Restore the page</button>
+  </main>
+  <script type="module" src="condemned.js"></script>
+</body>
+</html>

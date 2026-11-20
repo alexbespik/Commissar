@@ -20,7 +20,7 @@ const packs = JSON.parse(readFileSync(join(ROOT, 'packs.json'), 'utf8'));
 let clips = 0;
 for (const id of packs) {
   const mp = join(ROOT, id, 'manifest.json');
-  if (!existsSync(mp)) { console.log(`· pack ${id}: not on this computer (voice packs are not in the repo; see README)`); continue; }
+  if (!existsSync(mp)) { console.log(`· pack ${id}: not on this computer (only the Commissar pack is in the repo; see README)`); continue; }
   const raw = JSON.parse(readFileSync(mp, 'utf8'));
   const capPath = join(ROOT, 'captions', `${id}.json`);
   const caps = existsSync(capPath) ? JSON.parse(readFileSync(capPath, 'utf8')) : {};
@@ -49,6 +49,8 @@ try {
     if (/UserPass=|SSOGUID|wa-analytics-sessionId/.test(text) && !f.startsWith('tools/check.mjs')) problems.push(`${f} holds a login token: keep it out of git`);
   }
 } catch { console.log('· git not available: skipped the token scan'); }
+
+if (!existsSync(join(ROOT, 'vendor', 'mediapipe', 'efficientdet_lite0.tflite'))) console.log('· camera watch: vision files not fetched yet (npm run vision)');
 
 if (problems.length) { console.log(problems.map((p) => `✗ ${p}`).join('\n')); process.exit(1); }
 console.log(`ok: manifest files present, ${packs.length} packs, ${clips} clips, all scripts parse`);
