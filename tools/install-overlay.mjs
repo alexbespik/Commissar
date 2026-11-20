@@ -17,6 +17,7 @@ const HOST = 'com.commissar.overlay';
 const DIRS = {
   brave: join(homedir(), 'Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts'),
   chrome: join(homedir(), 'Library/Application Support/Google/Chrome/NativeMessagingHosts'),
+  chromium: join(homedir(), 'Library/Application Support/Chromium/NativeMessagingHosts'),
 };
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : ''; };
@@ -25,14 +26,14 @@ const dir = DIRS[browser];
 const fail = (msg) => { console.error(`✗ ${msg}`); process.exit(1); };
 
 if (platform() !== 'darwin') fail('The helper is for macOS only.');
-if (!dir) fail(`Unknown browser "${browser}": use brave or chrome.`);
-const manifestPath = join(dir, `${HOST}.json`);
+if (!dir) fail(`Unknown browser "${browser}": use brave, chrome or chromium.`);
+// some Brave builds on macOS look for hosts in Chrome's or Chromium's folder instead of their own: register in all three
+const targets = (browser === 'brave' ? [DIRS.brave, DIRS.chrome, DIRS.chromium] : [dir]).map((d) => join(d, `${HOST}.json`));
 // the installed copy lives outside this folder, so later changes here (a git pull) never change what the browser runs
 const INSTALLED = join(homedir(), 'Library/Application Support/CommissarOverlay/commissar-overlay');
 
 if (args.includes('--uninstall')) {
-  rmSync(manifestPath, { force: true });
-  console.log(`ok: removed ${manifestPath}`);
+  for (const m of targets) { rmSync(m, { force: true }); console.log(`ok: removed ${m}`); }
   if (!Object.values(DIRS).some((d) => existsSync(join(d, `${HOST}.json`)))) { // no browser uses it any more
     rmSync(dirname(INSTALLED), { recursive: true, force: true });
     console.log(`ok: removed ${dirname(INSTALLED)}`);
@@ -66,14 +67,14 @@ mkdirSync(fontsOut, { recursive: true });
 const fontsIn = join(ROOT, 'src', 'fonts');
 for (const f of readdirSync(fontsIn)) if (/^jetbrains-mono-latin-.*\.woff2$/.test(f) || f === 'OFL.txt') copyFileSync(join(fontsIn, f), join(fontsOut, f));
 
-mkdirSync(dir, { recursive: true });
-writeFileSync(manifestPath, `${JSON.stringify({
+const hostManifest = `${JSON.stringify({
   name: HOST,
   description: 'Commissar Study Watch: shows the Commissar over every app and tells the extension which app is in front',
   path: INSTALLED,
   type: 'stdio',
   allowed_origins: [`chrome-extension://${id}/`],
-}, null, 2)}\n`);
+}, null, 2)}\n`;
+for (const m of targets) { mkdirSync(dirname(m), { recursive: true }); writeFileSync(m, hostManifest); }
 console.log(`ok: helper built and installed at ${INSTALLED}`);
-console.log(`ok: registered for ${browser} in ${manifestPath}`);
+for (const m of targets) console.log(`ok: registered for ${browser} in ${m}`);
 console.log('Now tick "Use the Mac helper" in the extension\'s Settings (it asks for one permission) and start a session.');
