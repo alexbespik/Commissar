@@ -8,9 +8,21 @@ node_modules/
 *webassign*.html
 .claude/launch.json
 .claude/
-# voice packs stay on your computer: the Commissar clips are ElevenLabs output (free-plan terms), the Democracy
-# Officer clips are a personal recording. The repo ships the line texts and tools/gen-voice.mjs instead.
-/commissar/
+# the Democracy Officer pack is a personal recording: it stays on your computer. The Commissar pack (ElevenLabs stock
+# voice, credited in commissar/ATTRIBUTION.md) is in the repo.
 /helldiver/
+*/manifest.before-*.json
 captions/*.before-replace.json
 */manifest.before-replace.json
+# your own images for the screamers (custom/scare-point.png ...): private, never published
+/custom/
+# the on-device vision files for the camera watch (~20 MB): fetched by `npm run vision`, checksums pinned there
+/vendor/
+# the Mac helper's build output (tools/install-overlay.mjs builds it)
+/native/build/
+# local-only voice packs and their lines: personal recordings, never published
+/yarrick/
+captions/yarrick.json
+tools/lines/yarrick.json
+/commissar-local/
+captions/commissar-local.json

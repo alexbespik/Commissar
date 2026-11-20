@@ -38,6 +38,7 @@ function render() {
     const a = session.answers || {};
     $('answers').textContent = `${a.pass || 0}/${(a.fail || 0) + (a.partial || 0)}`;
     $('discLine').textContent = `Discipline: ${settings.discipline} · punishments ${session.punishments || 0} · away ${Math.round((session.awayMs || 0) / 60000)} min`;
+    renderPass(session);
     $('returnNow').disabled = !session.studyTab;
     $('returnNow').title = session.studyTab ? session.studyTab.url : 'No study tab yet: open your material first';
   }
@@ -46,9 +47,16 @@ function render() {
   $('pageVerdict').textContent = VERDICT_TEXT[page] || '';
 }
 
+function renderPass(session) {
+  const left = (session?.passUntil || 0) - Date.now();
+  $('pass').textContent = left > 0 ? `Outside resources: ${mmss(left)} left (+10)` : 'I need outside resources (10 min)';
+  $('pass').disabled = left > 0 && left > 20 * 60_000; // already at the 30-minute limit
+  $('passEnd').hidden = !(left > 0);
+}
+
 function tickClock() {
   const s = status?.session;
-  if (s?.active) $('clock').textContent = mmss(Date.now() - s.startedAt);
+  if (s?.active) { $('clock').textContent = mmss(Date.now() - s.startedAt); renderPass(s); }
 }
 
 async function refresh() {
@@ -73,6 +81,9 @@ $('stop').addEventListener('click', async () => { $('stop').disabled = true; awa
 $('markStudy').addEventListener('click', async () => { await send({ type: 'mark', verdict: 'study' }); refresh(); });
 $('markDistraction').addEventListener('click', async () => { await send({ type: 'mark', verdict: 'distraction' }); refresh(); });
 $('silence').addEventListener('click', () => send({ type: 'silence' }));
+$('chat').addEventListener('click', async () => { await send({ type: 'openChat' }); window.close(); });
+$('pass').addEventListener('click', async () => { await send({ type: 'outsidePass' }); refresh(); });
+$('passEnd').addEventListener('click', async () => { await send({ type: 'outsidePass', end: true }); refresh(); });
 $('returnNow').addEventListener('click', async () => { await send({ type: 'returnNow' }); window.close(); });
 $('options').addEventListener('click', () => chrome.runtime.openOptionsPage());
 $('grant').addEventListener('click', async () => {

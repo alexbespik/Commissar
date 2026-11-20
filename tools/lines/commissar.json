@@ -8,7 +8,13 @@
       "Eyes front. Every page you read is ground taken.",
       "The enemy today is distraction. It does not win.",
       "No retreat from this desk. Begin.",
-      "I want pages, not excuses. Move."
+      "I want pages, not excuses. Move.",
+      "I held a city for a year with cooks and clerks. You will hold this desk for one hour.",
+      "The siege begins. Take your post, and do not make me come looking for you.",
+      "You are stronger than the excuse you woke up with. Prove it.",
+      "Every great defence began with one soldier who refused to leave. Be that soldier.",
+      "I have seen worse odds than this exam, and I have seen them broken. Begin.",
+      "You came to the desk. That is the hardest step, and it is done."
     ],
     "stop": [
       "Stand down. The war resumes tomorrow.",
@@ -18,18 +24,25 @@
       "Clean record. That's how it's done. Dismissed.",
       "You held the line the whole way. Good.",
       "Solid session. Same time tomorrow, same standard.",
-      "That was discipline. Remember what it felt like."
+      "That was discipline. Remember what it felt like.",
+      "The city stands. So does your grade. Dismissed, soldier.",
+      "You fought well today. Sleep like someone who earned it.",
+      "That was a soldier's work. I am proud to have watched it.",
+      "Tomorrow you will be better, because today you did not quit."
     ],
     "endBad": [
       "Session over. Half of it went somewhere else.",
       "You were here in body. Tomorrow, bring the rest of you.",
       "That record has holes in it. Patch them next time.",
-      "Done. Barely. We'll do better."
+      "Done. Barely. We'll do better.",
+      "The walls were breached more than once today. Tomorrow, we hold them.",
+      "A hard day is still a day you showed up. Tomorrow, we take back the ground."
     ],
     "abandon": [
       "Leaving already? That wasn't a session. That was a visit.",
       "Walking off before the work started. Noted.",
-      "Quitting this early is a habit. Don't build it."
+      "Quitting this early is a habit. Don't build it.",
+      "You left the gate open and walked away. The enemy thanks you."
     ],
     "distracted": [
       "That's not your coursework. Close it.",
@@ -37,47 +50,69 @@
       "Wrong tab. You know which one is right.",
       "Is this on the exam? It isn't. Move.",
       "Five seconds in and already drifting. Fix it.",
-      "That page doesn't care about your grade. I do."
+      "That page doesn't care about your grade. I do.",
+      "I have shot better soldiers than you for wandering off their post. Back.",
+      "The enemy does not take breaks. Neither does your coursework."
     ],
     "deserted": [
       "Still here. Still wrong. Close it.",
       "A full minute on that. The exam won't refund it.",
       "This is desertion, plain and simple. Back to your post.",
       "Every minute here is borrowed from your future self. Pay it back.",
-      "I'm taking you back. You can thank me later."
+      "I'm taking you back. You can thank me later.",
+      "In the siege, deserters were not punished. They were made an example of.",
+      "I watched those walls for a year and a half. You cannot watch one page for twenty minutes?"
     ],
     "lockout": [
       "Third time. You'll write it out until you mean it.",
       "Strikes add up. So does the penance. Write.",
-      "You keep coming back here. So I locked the door."
+      "You keep coming back here. So I locked the door.",
+      "My soldiers swore their oaths in blood. You get a keyboard. Write.",
+      "Repeat it until your hands remember what your head forgot."
     ],
     "back": [
       "Good. Back where you belong.",
       "That's the right tab. Stay on it.",
       "Back at your post. Keep it that way.",
-      "Better. Don't make me say it again."
+      "Better. Don't make me say it again.",
+      "Back on the wall. Good. The line holds.",
+      "There you are. The horde did not wait for you. Neither did the work.",
+      "You came back. That is what separates soldiers from deserters.",
+      "Good. A soldier who returns is worth ten who never left the barracks.",
+      "Back on the wall, and the wall is stronger for it."
     ],
     "away": [
       "You left the browser. Your work didn't leave with you.",
       "Wherever you are, your material is waiting here.",
       "Gone quiet. If that's not study, come back.",
-      "The desk is empty. Return to it."
+      "The desk is empty. Return to it.",
+      "A soldier who leaves the wall leaves a hole in it. Get back to your wall.",
+      "I lost an arm holding my post. You lost your focus holding a phone."
     ],
     "returned": [
       "You're back. Pick up where you left off.",
-      "Welcome back. The clock never stopped."
+      "Welcome back. The clock never stopped.",
+      "You returned on your own feet. I respect that. Continue.",
+      "The line held while you were gone. Now hold it with me."
     ],
     "idle": [
       "Your hands stopped. Is your brain still on?",
       "Thinking, or drifting? Prove it. Next line.",
       "Long pause. Read the next sentence. Go.",
-      "A break is earned. This one wasn't."
+      "A break is earned. This one wasn't.",
+      "Asleep at your post. In my day, that was a firing offence.",
+      "Tired? So was every soldier on the wall. They held anyway. One more page."
     ],
     "focusBlock": [
       "Full block, held. Take five. Exactly five.",
       "That's real work. Stand up, stretch, come back.",
       "Good block. Rest your eyes, not your standards.",
-      "Block complete. Water, breath, then the next one."
+      "Block complete. Water, breath, then the next one.",
+      "Twenty-five minutes and the line never broke. Five minutes of rest, then back on the wall.",
+      "Another block taken. You are building something they cannot take from you.",
+      "That is how sieges are won. One block at a time. Rest, then return.",
+      "You held longer than you thought you could. Remember that next time it gets hard.",
+      "I have commanded veterans with less patience than you showed just now. Rest."
     ],
     "quizPass": [
       "Correct. Next.",
@@ -85,7 +120,12 @@
       "That's the standard. Hold it.",
       "Clean answer. Keep the streak alive.",
       "Correct. You earned that one.",
-      "Good. Now do it again."
+      "Good. Now do it again.",
+      "Correct. One more breach sealed.",
+      "Correct. Your training is paying off.",
+      "Right. You are getting sharper with every round.",
+      "Correct. That one was hard, and you took it anyway.",
+      "Good. The enemy is falling back."
     ],
     "quizFail": [
       "Wrong. Good, now you know where the gap is.",
@@ -93,16 +133,90 @@
       "Not that one. Find the mistake before you retry.",
       "Wrong answer. Slow down and check each step.",
       "Missed it. Mistakes here are cheap. Learn from it.",
-      "No. Rework it from the first line."
+      "No. Rework it from the first line.",
+      "Wrong. A mistake on the wall gets you killed. Here it only gets you a lesson. Take it.",
+      "Wrong, but you are still standing. Again.",
+      "Every soldier misses a shot. The good ones reload. Reload.",
+      "A wrong answer now is a right answer on the exam. Learn it.",
+      "Do not lower your head. Put your pencil to the page and fix it."
     ],
     "quizPartial": [
       "Partly right. Partly isn't the standard.",
-      "Some of it holds. Find the piece that doesn't."
+      "Some of it holds. Find the piece that doesn't.",
+      "Most of the ground is taken. Finish the job.",
+      "Close. You are one step from the standard. Find it."
     ],
     "allDone": [
       "Every question, every point. Assignment cleared.",
       "Full marks. That's what preparation looks like.",
-      "Perfect sheet. Dismissed with honors."
+      "Perfect sheet. Dismissed with honors.",
+      "Every breach sealed, every gate held. That is how a siege is won.",
+      "Not one question left standing. That is victory, soldier. Savour it, briefly.",
+      "Assignment taken. You fought for every point. Well done."
+    ],
+    "awayPoint": [
+      "You. Yes, you. Back to your desk. Now.",
+      "I see the empty chair. Fill it.",
+      "Look at me. Now look at your work. Go.",
+      "Do not think the walls hide you. I see you. Return."
+    ],
+    "awayShoot": [
+      "That was a warning shot. The next one isn't.",
+      "You were warned twice. Back to your post.",
+      "Desertion has consequences. Move.",
+      "The last man who ran from my line did not get a second warning. You just did."
+    ],
+    "watch": [
+      "I am watching you.",
+      "Still here. Still watching.",
+      "Don't look at me. Look at your work.",
+      "Good. Keep going. I see everything.",
+      "Every page. I see every page.",
+      "Even with one eye, I see everything.",
+      "Every soldier on the wall knows I stand behind them. So do you.",
+      "You are doing well. Do not let it go to your head. Keep going.",
+      "Steady. The work is moving. I see it.",
+      "This is what discipline looks like. Keep it up.",
+      "Good soldier. Hold this pace.",
+      "The hardest part is behind you. Keep pushing.",
+      "I do not hand out praise. Consider this an exception. Keep going."
+    ],
+    "passStart": [
+      "Outside resources. The clock is running, and I am counting every minute.",
+      "Go fetch your materials. Ten minutes. Not eleven."
+    ],
+    "passEnd": [
+      "Time is up. Back to your post.",
+      "Your leave is over, soldier. Back on the wall.",
+      "Back from the supply run. Good. Put it to use."
+    ],
+    "phone": [
+      "Put the phone down. Now.",
+      "I see that phone. Face down, out of reach.",
+      "In the siege, a sentry on his phone was a dead sentry. Put it down."
+    ],
+    "phoneStill": [
+      "Still on that phone. You were warned.",
+      "That phone has cost you a strike and my patience. Down. Now."
+    ],
+    "absent": [
+      "An empty chair. Where is my soldier?",
+      "Your post is empty. Get back in that chair."
+    ],
+    "lookAway": [
+      "Eyes front. Your work is not over there.",
+      "What is so interesting over there? Eyes on your work."
+    ],
+    "lookAwayLong": [
+      "Still staring at nothing. That is a strike.",
+      "A sentry who stares at the sky does not see the enemy. Strike."
+    ],
+    "lookDown": [
+      "Head down, hands off the keys. If that is a phone in your lap, put it away.",
+      "I can see your head, soldier. I can also guess what is in your lap."
+    ],
+    "lookDownLong": [
+      "Still head down with your hands off the keys. That is a strike."
     ]
   }
 }

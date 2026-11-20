@@ -1,0 +1,97 @@
+{
+  "name": "Commissar (premade)",
+  "voice": "onwK4e9ZLuTAKqWW03F9",
+  "model": "eleven_multilingual_v2",
+  "events": {
+    "on": [
+      "on-e2dcc8408a6e.mp3",
+      "on-152fed0bc9fb.mp3",
+      "on-a510c9d6fb12.mp3",
+      "on-64f42d6a29c4.mp3",
+      "on-345b403ad8fc.mp3",
+      "on-36a2cc9160bb.mp3"
+    ],
+    "off": [
+      "off-7daed4bdeff5.mp3",
+      "off-79c82bcbed26.mp3",
+      "off-d8c6b5424fdd.mp3",
+      "off-ce3e5b284f00.mp3",
+      "off-9c0b1396e79f.mp3"
+    ],
+    "tab": [
+      "tab-7ea2f9a3afbf.mp3",
+      "tab-ddc1ea80cec4.mp3",
+      "tab-30fc52920cd9.mp3",
+      "tab-91898c7ae7a9.mp3",
+      "tab-baff97b723b2.mp3",
+      "tab-8ceecf027c89.mp3"
+    ],
+    "quizPass": [
+      "quizPass-9b058b17263c.mp3",
+      "quizPass-b5cb9ec42d9b.mp3",
+      "quizPass-611217a52886.mp3",
+      "quizPass-1ece96eadcff.mp3",
+      "quizPass-8acf11996de3.mp3",
+      "quizPass-8f5dfcb0fd27.mp3"
+    ],
+    "quizFail": [
+      "quizFail-8a07b9c7e55f.mp3",
+      "quizFail-7d49efdc737b.mp3",
+      "quizFail-fcdd2e1985f3.mp3",
+      "quizFail-af76a22d68bb.mp3",
+      "quizFail-f74835ad0d40.mp3",
+      "quizFail-1d65ce536c4a.mp3"
+    ],
+    "reward": [
+      "reward-c70a17aea2ee.mp3",
+      "reward-d1c0db88b0db.mp3",
+      "reward-013d7592db82.mp3",
+      "reward-06d6fafe44e2.mp3",
+      "reward-d0270268944a.mp3",
+      "reward-db016e811e0c.mp3"
+    ],
+    "streak": [
+      "streak-e46f9ee074ff.mp3",
+      "streak-29f47d7defac.mp3",
+      "streak-89be1a9b8d06.mp3",
+      "streak-369c4c7f5189.mp3",
+      "streak-e2e3c717cb13.mp3",
+      "streak-0651524340c3.mp3"
+    ],
+    "streakRisk": [
+      "streakRisk-764760d6cf2c.mp3",
+      "streakRisk-3b482d0b500f.mp3",
+      "streakRisk-6a32dc99ba16.mp3",
+      "streakRisk-b2cc85c12289.mp3",
+      "streakRisk-1f7436ca91fc.mp3",
+      "streakRisk-50556bbd2a6c.mp3"
+    ],
+    "reviewDue": [
+      "reviewDue-e4ab6a3d42b7.mp3",
+      "reviewDue-a758938ec198.mp3",
+      "reviewDue-b7d2589b056d.mp3",
+      "reviewDue-d3baae84c5b7.mp3",
+      "reviewDue-b4ae3ab47743.mp3",
+      "reviewDue-636d1ef40100.mp3"
+    ],
+    "desert": [
+      "desert-483f7437a18c.mp3",
+      "desert-c0926e78f489.mp3",
+      "desert-94e950c8299f.mp3",
+      "desert-d01b2b044620.mp3"
+    ]
+  },
+  "aliases": {
+    "distracted": [
+      "tab-baff97b723b2.mp3",
+      "tab-91898c7ae7a9.mp3"
+    ],
+    "deserted": [
+      "desert-94e950c8299f.mp3",
+      "streakRisk-50556bbd2a6c.mp3"
+    ],
+    "watch": [
+      "on-152fed0bc9fb.mp3"
+    ]
+  }
+}

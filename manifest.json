@@ -11,7 +11,8 @@
     "storage",
     "offscreen",
     "tts",
-    "scripting"
+    "scripting",
+    "notifications"
   ],
   "optional_host_permissions": [
     "<all_urls>",
@@ -40,12 +41,29 @@
       "run_at": "document_idle"
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/penance.html",
+        "src/penance.js",
+        "src/fonts/fonts.css",
+        "src/fonts/*.woff2"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
   "optional_permissions": [
-    "notifications"
+    "nativeMessaging"
   ]
 }
